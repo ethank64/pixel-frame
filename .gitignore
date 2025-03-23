@@ -1,0 +1,31 @@
+# Root-level .gitignore
+
+# Node
+node_modules/
+dist/
+build/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+apps/backend/.venv/
+
+
+# C++ / Arduino / Microcontroller
+*.o
+*.elf
+*.hex
+*.bin
+.vscode/
+
+# Editor
+.DS_Store
+.idea/
+*.swp
+
+# Monorepo tools
+pnpm-lock.yaml
+turbo/
