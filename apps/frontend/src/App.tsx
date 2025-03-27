@@ -7,10 +7,9 @@ type Pixel = { r: number; g: number; b: number };
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { messages, send, isConnected } = useWebSocket('ws://localhost:8000/api/ws/canvas');
+  const { messages, send, isConnected } = useWebSocket('ws://44.201.202.86:8000/api/ws/canvas');
   const [canvasState, setCanvasState] = useState<Pixel[][] | null>(null);
 
-  // Draw the canvas when canvasState changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !canvasState) return;
@@ -27,11 +26,10 @@ function App() {
     }
   }, [canvasState]);
 
-  // Handle WebSocket messages
   useEffect(() => {
     if (!messages.length) return;
 
-    const latestMessage = messages[messages.length - 1]; // Process the latest message
+    const latestMessage = messages[messages.length - 1];
     console.log('Processing message:', latestMessage.type);
 
     setCanvasState((prevState) => {
@@ -58,7 +56,6 @@ function App() {
     });
   }, [messages]);
 
-  // Handle canvas click
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isConnected || !canvasState) return;
 

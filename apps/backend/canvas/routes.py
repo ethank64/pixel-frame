@@ -1,4 +1,4 @@
-# canvas/routes.py
+# apps/backend/canvas/routes.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import json
 import logging
@@ -12,18 +12,18 @@ connected_clients = set()
 
 @router.websocket("/ws/canvas")
 async def websocket_endpoint(websocket: WebSocket):
-    """Handle WebSocket connections for real-time canvas updates."""
     await websocket.accept()
     connected_clients.add(websocket)
     try:
         from .utils import get_canvas
         canvas = await get_canvas()
+        # Only send non-black pixels to reduce payload size
         initial_data = [{"x": x, "y": y, "r": r, "g": g, "b": b}
                         for y in range(64) for x in range(64)
-                        for r, g, b in [canvas[y][x]]]
-        logger.info("Sending init message to new client")
+                        for r, g, b in [canvas[y][x]] if r != 0 or g != 0 or b != 0]
+        logger.info(f"Sending init message with {len(initial_data)} pixels")
         await websocket.send_text(json.dumps({"type": "init", "canvas": initial_data}))
-        await asyncio.sleep(0.1)  # Small delay to ensure client processes init
+        await asyncio.sleep(0.5)  # Delay to ensure client is ready
 
         sample_updates = [
             {"x": 10, "y": 10, "r": 255, "g": 0, "b": 0},
