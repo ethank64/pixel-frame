@@ -18,10 +18,10 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         from .utils import get_canvas
         canvas = await get_canvas()
-        # Send all 64x64 pixels
+        # Send only non-black pixels to reduce payload size
         initial_data = [{"x": x, "y": y, "r": r, "g": g, "b": b}
                         for y in range(64) for x in range(64)
-                        for r, g, b in [canvas[y][x]]]
+                        for r, g, b in [canvas[y][x]] if r != 0 or g != 0 or b != 0]
         logger.info(f"Sending init message with {len(initial_data)} pixels")
         await websocket.send_text(json.dumps({"type": "init", "canvas": initial_data}))
         await asyncio.sleep(1.0)  # Delay for ESP32
