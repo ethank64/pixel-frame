@@ -1,5 +1,5 @@
-# apps/backend/canvas/routes.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 import json
 import logging
 import asyncio
@@ -58,3 +58,9 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         if websocket in connected_clients:
             connected_clients.remove(websocket)
+
+@router.post("/reset")
+async def reset_canvas():
+    from .utils import reset_canvas
+    await reset_canvas()
+    return JSONResponse(content={"message": "Canvas reset successfully"})

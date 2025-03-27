@@ -1,17 +1,47 @@
 /* src/App.css */
 .App {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;      /* vertical centering */
+  min-height: 100vh;
+  width: 100vw;                 /* ensure full width */
   text-align: center;
+  background-color: #f0f0f0;
   padding: 20px;
+  box-sizing: border-box;       /* prevents padding from pushing over 100vh */
 }
 
-.pixel-canvas {
-  width: 256px; /* 64px * 4x scale */
-  height: 256px;
-  border: 1px solid black;
-  image-rendering: pixelated; /* Keeps pixels sharp when scaled */
+.canvas-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-grow: 0;                 /* prevents it from stretching */
+  margin: 20px 0;               /* optional spacing */
+}
+
+
+h1 {
+  margin-bottom: 10px;
+  color: #333;
 }
 
 button {
   margin-top: 10px;
-  padding: 5px 10px;
+  padding: 8px 16px;
+  background-color: #646cff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+button:hover {
+  background-color: #535bf2;
+}
+
+button:disabled {
+  background-color: #999;
+  cursor: not-allowed;
 }

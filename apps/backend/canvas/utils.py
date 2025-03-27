@@ -1,4 +1,3 @@
-# canvas/utils.py
 import json
 
 canvas = [[(0, 0, 0) for _ in range(64)] for _ in range(64)]  # Default black
@@ -42,3 +41,23 @@ async def broadcast_canvas_update(x: int, y: int, r: int, g: int, b: int):
             await client.send_text(update_message)
         except Exception as e:
             print(f"Failed to send to client: {e}")
+
+async def reset_canvas():
+    """Reset the canvas to all black and broadcast updates to clients."""
+    for y in range(64):
+        for x in range(64):
+            canvas[y][x] = (0, 0, 0)
+    save_canvas()
+
+    from .routes import connected_clients
+    if connected_clients:
+        reset_messages = [
+            json.dumps({"type": "pixel_update", "x": x, "y": y, "r": 0, "g": 0, "b": 0})
+            for y in range(64) for x in range(64)
+        ]
+        for client in connected_clients:
+            for msg in reset_messages:
+                try:
+                    await client.send_text(msg)
+                except Exception as e:
+                    print(f"Failed to send to client: {e}")
