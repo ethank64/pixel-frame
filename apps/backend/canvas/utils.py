@@ -1,4 +1,6 @@
+# apps/backend/canvas/utils.py
 import json
+import asyncio
 
 canvas = [[(0, 0, 0) for _ in range(64)] for _ in range(64)]  # Default black
 FILE_PATH = "canvas_state.json"
@@ -43,21 +45,17 @@ async def broadcast_canvas_update(x: int, y: int, r: int, g: int, b: int):
             print(f"Failed to send to client: {e}")
 
 async def reset_canvas():
-    """Reset the canvas to all black and broadcast updates to clients."""
-    for y in range(64):
-        for x in range(64):
-            canvas[y][x] = (0, 0, 0)
+    """Reset the canvas to all black."""
+    global canvas
+    canvas = [[(0, 0, 0) for _ in range(64)] for _ in range(64)]
     save_canvas()
 
+async def broadcast_reset():
+    """Broadcast a reset message to all connected WebSocket clients."""
     from .routes import connected_clients
-    if connected_clients:
-        reset_messages = [
-            json.dumps({"type": "pixel_update", "x": x, "y": y, "r": 0, "g": 0, "b": 0})
-            for y in range(64) for x in range(64)
-        ]
-        for client in connected_clients:
-            for msg in reset_messages:
-                try:
-                    await client.send_text(msg)
-                except Exception as e:
-                    print(f"Failed to send to client: {e}")
+    reset_message = json.dumps({"type": "reset"})
+    for client in connected_clients:
+        try:
+            await client.send_text(reset_message)
+        except Exception as e:
+            print(f"Failed to send to client: {e}")

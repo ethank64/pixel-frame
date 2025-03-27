@@ -1,3 +1,4 @@
+# apps/backend/canvas/routes.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 import json
@@ -23,7 +24,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         for r, g, b in [canvas[y][x]] if r != 0 or g != 0 or b != 0]
         logger.info(f"Sending init message with {len(initial_data)} pixels")
         await websocket.send_text(json.dumps({"type": "init", "canvas": initial_data}))
-        await asyncio.sleep(0.5)  # Delay to ensure client is ready
+        await asyncio.sleep(1.0)  # Delay for ESP32
 
         sample_updates = [
             {"x": 10, "y": 10, "r": 255, "g": 0, "b": 0},
@@ -61,6 +62,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @router.post("/reset")
 async def reset_canvas():
-    from .utils import reset_canvas
+    from .utils import reset_canvas, broadcast_reset
     await reset_canvas()
+    await broadcast_reset()
     return JSONResponse(content={"message": "Canvas reset successfully"})
