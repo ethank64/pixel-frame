@@ -18,25 +18,13 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         from .utils import get_canvas
         canvas = await get_canvas()
-        # Only send non-black pixels to reduce payload size
+        # Send all 64x64 pixels
         initial_data = [{"x": x, "y": y, "r": r, "g": g, "b": b}
                         for y in range(64) for x in range(64)
-                        for r, g, b in [canvas[y][x]] if r != 0 or g != 0 or b != 0]
+                        for r, g, b in [canvas[y][x]]]
         logger.info(f"Sending init message with {len(initial_data)} pixels")
         await websocket.send_text(json.dumps({"type": "init", "canvas": initial_data}))
         await asyncio.sleep(1.0)  # Delay for ESP32
-
-        sample_updates = [
-            {"x": 10, "y": 10, "r": 255, "g": 0, "b": 0},
-            {"x": 20, "y": 20, "r": 0, "g": 255, "b": 0},
-            {"x": 30, "y": 30, "r": 0, "g": 0, "b": 255},
-        ]
-
-        for update in sample_updates:
-            from .utils import update_pixel, broadcast_canvas_update
-            x, y, r, g, b = update["x"], update["y"], update["r"], update["g"], update["b"]
-            update_pixel(x, y, r, g, b)
-            await broadcast_canvas_update(x, y, r, g, b)
 
         while True:
             data = await websocket.receive_text()
@@ -66,3 +54,28 @@ async def reset_canvas():
     await reset_canvas()
     await broadcast_reset()
     return JSONResponse(content={"message": "Canvas reset successfully"})
+
+@router.post("/update_image")
+async def update_image(data: dict):
+    pixels = data.get("pixels", [])
+    if not pixels:
+        return JSONResponse(content={"message": "No pixel data provided"}, status_code=400)
+
+    from .utils import reset_canvas, broadcast_reset, update_pixel, broadcast_canvas_update
+    # Reset canvas to black first
+    await reset_canvas()
+    await broadcast_reset()
+
+    # Update with new pixel data
+    for pixel in pixels:
+        x = pixel.get("x")
+        y = pixel.get("y")
+        r = pixel.get("r")
+        g = pixel.get("g")
+        b = pixel.get("b")
+        if (0 <= x <= 63 and 0 <= y <= 63 and 
+            0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
+            update_pixel(x, y, r, g, b)
+            await broadcast_canvas_update(x, y, r, g, b)
+
+    return JSONResponse(content={"message": "Image updated successfully"})

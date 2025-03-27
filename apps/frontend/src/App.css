@@ -1,25 +1,37 @@
 /* src/App.css */
 .App {
+  text-align: center;
+  padding: 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;      /* vertical centering */
+  justify-content: center;
   min-height: 100vh;
-  width: 100vw;                 /* ensure full width */
-  text-align: center;
   background-color: #f0f0f0;
-  padding: 20px;
-  box-sizing: border-box;       /* prevents padding from pushing over 100vh */
 }
 
 .canvas-container {
   display: flex;
   justify-content: center;
   align-items: center;
-  flex-grow: 0;                 /* prevents it from stretching */
-  margin: 20px 0;               /* optional spacing */
+  flex-grow: 1;
 }
 
+.webcam-container {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.webcam-container video {
+  border: 2px solid #333;
+  border-radius: 4px;
+}
+
+.webcam-container button {
+  margin: 5px;
+}
 
 h1 {
   margin-bottom: 10px;

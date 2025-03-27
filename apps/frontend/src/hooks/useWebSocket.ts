@@ -1,4 +1,4 @@
-// src/hooks/useWebSocket.ts
+// src/hooks/useWebSocket.tsx
 import { useState, useEffect } from 'react';
 
 interface PixelUpdate {
@@ -15,11 +15,15 @@ interface InitMessage {
   canvas: { x: number; y: number; r: number; g: number; b: number }[];
 }
 
-type WebSocketMessage = PixelUpdate | InitMessage;
+interface ResetMessage {
+  type: 'reset';
+}
+
+type WebSocketMessage = PixelUpdate | InitMessage | ResetMessage;
 
 export function useWebSocket(url: string) {
   const [ws, setWs] = useState<WebSocket | null>(null);
-  const [messages, setMessages] = useState<WebSocketMessage[]>([]); // Store all messages
+  const [messages, setMessages] = useState<WebSocketMessage[]>([]);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
@@ -33,8 +37,8 @@ export function useWebSocket(url: string) {
 
     socket.onmessage = (event) => {
       const data: WebSocketMessage = JSON.parse(event.data);
-      console.log('Received message:', data.type, data.type === 'init' ? `${data.canvas.length} pixels` : '');
-      setMessages((prev) => [...prev, data]); // Append new message
+      console.log('WebSocket message received:', data); // Debug log
+      setMessages((prev) => [...prev, data]);
     };
 
     socket.onerror = (error) => {
@@ -47,12 +51,7 @@ export function useWebSocket(url: string) {
       setIsConnected(false);
     };
 
-    // Cleanup only when component unmounts, not on every render
-    return () => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.close();
-      }
-    };
+    return () => socket.close();
   }, [url]);
 
   const send = (data: PixelUpdate) => {
