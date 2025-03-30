@@ -11,7 +11,7 @@ interface CanvasGridProps {
   selectedColor: { r: number; g: number; b: number };
 }
 
-function CanvasGrid({ send, isConnected, selectedColor }: CanvasGridProps) {
+function CanvasGrid({ send, selectedColor }: CanvasGridProps) {
   const { messages } = useWebSocket('ws://44.201.202.86:8000/api/ws/canvas');
   const [canvasState, setCanvasState] = useState<Pixel[][]>(
     Array(64).fill(null).map(() => Array(64).fill({ r: 0, g: 0, b: 0 }))

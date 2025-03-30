@@ -113,7 +113,7 @@ function App() {
 
   return (
     <div className="App">
-      <h1>Pixel Canvas</h1>
+      <h1>Pixel Frame</h1>
       <p>Status: {isConnected ? 'Connected' : 'Disconnected'}</p>
       <div className="canvas-container">
         <CanvasGrid
