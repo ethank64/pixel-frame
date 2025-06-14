@@ -2,6 +2,7 @@
 import json
 import asyncio
 
+# Store the canvas as a 2D array in a local JSON file
 canvas = [[(0, 0, 0) for _ in range(64)] for _ in range(64)]  # Default black
 FILE_PATH = "canvas_state.json"
 

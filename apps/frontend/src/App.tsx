@@ -4,11 +4,10 @@ import CanvasGrid from "./components/CanvasGrid";
 import ColorPicker from "./components/ColorPicker";
 import { useWebSocket } from "./hooks/useWebSocket";
 import "./App.css";
+import { WS_URL, UPDATE_IMAGE_URL, RESET_URL } from "./config";
 
 function App() {
-  const { send, isConnected } = useWebSocket(
-    "ws://44.201.202.86:8000/api/ws/canvas"
-  );
+  const { send, isConnected } = useWebSocket(WS_URL);
   const [selectedColor, setSelectedColor] = useState<{
     r: number;
     g: number;
@@ -74,7 +73,7 @@ function App() {
 
     // Send to backend
     try {
-      const response = await fetch("http://44.201.202.86:8000/api/update_image", {
+      const response = await fetch(UPDATE_IMAGE_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -95,7 +94,7 @@ function App() {
     if (!isConnected) return;
 
     try {
-      const response = await fetch("http://44.201.202.86:8000/api/reset", {
+      const response = await fetch(RESET_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
