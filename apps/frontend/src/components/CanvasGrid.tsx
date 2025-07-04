@@ -7,16 +7,6 @@ import { WS_URL } from '../config';
 type Pixel = { r: number; g: number; b: number };
 type PixelUpdate = { x: number; y: number; r: number; g: number; b: number };
 
-interface WebSocketMessage {
-  type: 'pixel_update' | 'init' | 'reset';
-  x?: number;
-  y?: number;
-  r?: number;
-  g?: number;
-  b?: number;
-  canvas?: { x: number; y: number; r: number; g: number; b: number }[];
-}
-
 interface CanvasGridProps {
   selectedColor: { r: number; g: number; b: number };
 }
@@ -75,7 +65,7 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
         }
         isBucketActive.current = false;
       }
-    }, 16); // ~60 FPS (16ms intervals)
+    }, 1); // ~60 FPS (16ms intervals)
   }, [send]);
 
   // Cleanup bucket on unmount

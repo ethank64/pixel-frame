@@ -228,6 +228,9 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         matrix.drawPixel(x, y, color);
         matrix.show();
         Serial.println("Matrix updated with pixel");
+      } else if (strcmp(msg_type, "reset") == 0) {
+        matrix.fillScreen(0);
+        matrix.show();
       }
       break;
     }

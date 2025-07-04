@@ -1,6 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { useWebSocket } from './useWebSocket';
-import { WS_URL } from '../config';
+import { WS_URL, RESET_URL } from '../config';
 
 export function useImageUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -10,6 +10,26 @@ export function useImageUpload() {
   const pixelQueue = useRef<{ x: number; y: number; r: number; g: number; b: number }[]>([]);
   const bucketInterval = useRef<NodeJS.Timeout | null>(null);
   const isBucketActive = useRef(false);
+
+  // Reset canvas function
+  const resetCanvas = useCallback(async () => {
+    try {
+      const response = await fetch(RESET_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to reset canvas: ${response.statusText}`);
+      }
+      
+      console.log('Canvas reset successfully');
+    } catch (error) {
+      console.error('Error resetting canvas:', error);
+    }
+  }, []);
 
   // Leaky bucket: drip pixels at fixed intervals
   const startBucket = useCallback(() => {
@@ -41,9 +61,16 @@ export function useImageUpload() {
     }, 16); // ~60 FPS (16ms intervals)
   }, [send]);
 
+  const isBlack = (r: number, g: number, b: number) => {
+    return r === 0 && g === 0 && b === 0;
+  }
+
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    // Reset canvas first
+    await resetCanvas();
 
     // Create a canvas to process the image
     const canvas = document.createElement('canvas');
@@ -71,7 +98,9 @@ export function useImageUpload() {
           const r = pixels[index];
           const g = pixels[index + 1];
           const b = pixels[index + 2];
-          pixelQueue.current.push({ x, y, r, g, b });
+          if (!isBlack(r, g, b)) {
+            pixelQueue.current.push({ x, y, r, g, b });
+          }
         }
       }
 
