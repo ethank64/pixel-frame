@@ -1,4 +1,4 @@
-const production = false;
+const production = true;
 
 export const EC2_IP = production ? "3.21.104.21:8000" : "localhost:8000";
 

@@ -7,6 +7,8 @@ Designed for MatrixPortal ESP32-S3.
 #include <WiFi.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
+#include <math.h> // Required for pow() function for gamma correction
+
 
 /* ----------------------------------------------------------------------
 Pin configuration for MatrixPortal ESP32-S3 - 64x64 matrix with 5 address pins
@@ -26,26 +28,154 @@ Adafruit_Protomatter matrix(
   WIDTH, 4, 1, rgbPins, NUM_ADDR_PINS, addrPins,
   clockPin, latchPin, oePin, true);
 
+// A simple gamma correction lookup table
+uint8_t gamma8[256];
+
 // Wi-Fi and WebSocket configuration
-const char* ssid = "eduroam";
-const char* wifi_username = "ek792523@ohio.edu";
-const char* wifi_password = "Hotdog8864*";
-const char* ws_host = "44.201.202.86";
+const char* network = "columbus";
+
+char* ssid;
+char* wifi_username;
+char* wifi_password;
+
+// Public IP of my EC2 instance for the backend
+const char* ws_host = "3.21.104.21";
 const uint16_t ws_port = 8000;
 const char* ws_path = "/api/ws/canvas";
 
 WebSocketsClient webSocket;
 
-// SETUP - RUNS ONCE AT PROGRAM START --------------------------------------
-void err(int x) {
-  uint8_t i;
-  pinMode(LED_BUILTIN, OUTPUT);
-  for(i=1;;i++) {
-    digitalWrite(LED_BUILTIN, i & 1);
-    delay(x);
+// Function Headers
+/* connectToWifi
+ * @brief Connects the board to the local network for Internet access
+ */
+void connectToWiFi();
+
+/*
+ * err
+ * @param x 
+ * @brief 
+ */
+void err(int x);
+
+/*
+ * webSocketEvent
+ * @param type
+ * @param payload
+ * @param length
+ * @brief 
+ */
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
+
+void writeText(char* message);
+
+/*
+ * setupGammaTable
+ * @brief Initializes the gamma correction lookup table.
+ * @param gammaValue The gamma correction factor (e.g., 2.2).
+ */
+void setupGammaTable(float gammaValue);
+
+/*
+ * getGammaCorrectedColor
+ * @brief Applies gamma correction to RGB values and returns a 16-bit color.
+ * @param r Red component (0-255).
+ * @param g Green component (0-255).
+ * @param b Blue component (0-255).
+ * @return A 16-bit color value (RGB565) with gamma correction applied.
+ */
+uint16_t getGammaCorrectedColor(uint8_t r, uint8_t g, uint8_t b);
+
+
+void setup(void) {
+  Serial.begin(9600);
+
+  // Initialize matrix
+  ProtomatterStatus status = matrix.begin();
+  Serial.printf("Protomatter begin() status: %d\n", status);
+  if(status != PROTOMATTER_OK) {
+    err(1000);
   }
+
+  // Board at the bottom
+  matrix.setRotation(3);
+
+  // Setup gamma correction with a common gamma value like 2.2
+  setupGammaTable(2.2); 
+
+  // Test matrix
+  writeText("Testing matrix...");
+  delay(2000);
+
+  connectToWiFi();
+
+  // Initialize WebSocket
+  Serial.println("Attempting WebSocket connection...");
+  webSocket.begin(ws_host, ws_port, ws_path);
+  webSocket.onEvent(webSocketEvent);
+  webSocket.setReconnectInterval(1000); // Retry every 1s
+  webSocket.enableHeartbeat(3000, 2000, 2); // Ping every 3s, timeout 2s
+  webSocket.setExtraHeaders("User-Agent: ESP32-PixelCanvas");
 }
 
+void loop() {
+  webSocket.loop();
+}
+
+
+// Function definitions
+void connectToWiFi() {
+  if (network == "columbus") {
+    ssid = "SpectrumSetup-7F";
+    wifi_password = "cameraladder846";
+  } else if (network == "ou") {
+    ssid = "eduroam";
+    wifi_username = "ek792523@ohio.edu";
+    wifi_password = "Hotdog8864*";
+  }
+
+  Serial.print("Connecting to Wi-Fi: ");
+  writeText("Connecting to WiFi...");
+  Serial.println(ssid);
+
+  if (network == "ou") {
+    WiFi.begin(ssid, WPA2_AUTH_PEAP, wifi_username, wifi_username, wifi_password);
+  } else if (network == "columbus") {
+    WiFi.begin(ssid, wifi_password);
+  }
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    if (WiFi.status() == WL_NO_SSID_AVAIL) {
+      Serial.println("SSID not found");
+      writeText("SSID not found");
+      err(500);
+    } else if (WiFi.status() == WL_CONNECT_FAILED) {
+      Serial.println("Connection failed (check credentials)");
+      writeText("Connection Failed");
+      err(500);
+    }
+  }
+
+  Serial.println("\nWi-Fi connected");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+  writeText("Connected!");
+  delay(2000);
+  matrix.fillScreen(0);
+}
+
+void writeText(char* message) {
+  matrix.setFont();
+  matrix.setTextColor(matrix.color565(255, 255, 255));    // White text
+  matrix.setCursor(0, 0);   // Top left
+  matrix.fillScreen(0);
+  matrix.print(message);
+  matrix.show();
+}
+
+// How we detect
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
     case WStype_DISCONNECTED:
@@ -56,8 +186,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       break;
     case WStype_CONNECTED:
       Serial.println("[WebSocket] Connected to server");
-      matrix.drawPixel(0, 0, matrix.color565(0, 255, 0)); // Green dot
-      matrix.show();
+      writeText("");
       break;
     case WStype_TEXT: {
       Serial.printf("Received message, length: %d bytes\n", length);
@@ -80,7 +209,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           uint8_t r = pixel["r"];
           uint8_t g = pixel["g"];
           uint8_t b = pixel["b"];
-          uint16_t color = matrix.color565(r, g, b);
+          // Apply gamma correction here
+          uint16_t color = getGammaCorrectedColor(r, g, b); 
           matrix.drawPixel(x, y, color);
           Serial.printf("Drawing pixel: x=%d, y=%d, r=%d, g=%d, b=%d\n", x, y, r, g, b);
         }
@@ -93,7 +223,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         uint8_t g = doc["g"];
         uint8_t b = doc["b"];
         Serial.printf("Pixel update: x=%d, y=%d, r=%d, g=%d, b=%d\n", x, y, r, g, b);
-        uint16_t color = matrix.color565(r, g, b);
+        // Apply gamma correction here
+        uint16_t color = getGammaCorrectedColor(r, g, b);
         matrix.drawPixel(x, y, color);
         matrix.show();
         Serial.println("Matrix updated with pixel");
@@ -115,52 +246,21 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
-void setup(void) {
-  Serial.begin(115200);
-
-  // Initialize matrix
-  ProtomatterStatus status = matrix.begin();
-  Serial.printf("Protomatter begin() status: %d\n", status);
-  if(status != PROTOMATTER_OK) {
-    err(1000);
+void err(int x) {
+  uint8_t i;
+  pinMode(LED_BUILTIN, OUTPUT);
+  for(i=1;;i++) {
+    digitalWrite(LED_BUILTIN, i & 1);
+    delay(x);
   }
-
-  // Test matrix
-  Serial.println("Testing matrix...");
-  matrix.fillScreen(matrix.color565(255, 0, 0)); // Red screen
-  matrix.show();
-  delay(2000);
-  matrix.fillScreen(0);
-  matrix.show();
-
-  // Connect to eduroam
-  Serial.print("Connecting to Wi-Fi: ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, WPA2_AUTH_PEAP, wifi_username, wifi_username, wifi_password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-    if (WiFi.status() == WL_NO_SSID_AVAIL) {
-      Serial.println("SSID not found");
-      err(500);
-    } else if (WiFi.status() == WL_CONNECT_FAILED) {
-      Serial.println("Connection failed (check credentials)");
-      err(500);
-    }
-  }
-  Serial.println("\nWi-Fi connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  // Initialize WebSocket
-  Serial.println("Attempting WebSocket connection...");
-  webSocket.begin(ws_host, ws_port, ws_path);
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(1000); // Retry every 1s
-  webSocket.enableHeartbeat(3000, 2000, 2); // Ping every 3s, timeout 2s
-  webSocket.setExtraHeaders("User-Agent: ESP32-PixelCanvas");
 }
 
-void loop() {
-  webSocket.loop();
+void setupGammaTable(float gammaValue) {
+  for (int i = 0; i < 256; i++) {
+    gamma8[i] = (uint8_t)(pow((float)i / 255.0, gammaValue) * 255.0 + 0.5);
+  }
+}
+
+uint16_t getGammaCorrectedColor(uint8_t r, uint8_t g, uint8_t b) {
+  return matrix.color565(gamma8[r], gamma8[g], gamma8[b]);
 }

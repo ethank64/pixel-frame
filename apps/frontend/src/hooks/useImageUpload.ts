@@ -1,8 +1,45 @@
-import { useRef } from 'react';
-import { UPDATE_IMAGE_URL } from '../config';
+import { useRef, useCallback } from 'react';
+import { useWebSocket } from './useWebSocket';
+import { WS_URL } from '../config';
 
 export function useImageUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { send } = useWebSocket(WS_URL);
+  
+  // Pixel queue for batching updates
+  const pixelQueue = useRef<{ x: number; y: number; r: number; g: number; b: number }[]>([]);
+  const bucketInterval = useRef<NodeJS.Timeout | null>(null);
+  const isBucketActive = useRef(false);
+
+  // Leaky bucket: drip pixels at fixed intervals
+  const startBucket = useCallback(() => {
+    if (isBucketActive.current) return;
+    
+    isBucketActive.current = true;
+    bucketInterval.current = setInterval(() => {
+      if (pixelQueue.current.length > 0) {
+        // Take one pixel from the queue and send it
+        const pixel = pixelQueue.current.shift();
+        if (pixel) {
+          send({
+            type: 'pixel_update' as const,
+            x: pixel.x,
+            y: pixel.y,
+            r: pixel.r,
+            g: pixel.g,
+            b: pixel.b,
+          });
+        }
+      } else {
+        // Stop the bucket when queue is empty
+        if (bucketInterval.current) {
+          clearInterval(bucketInterval.current);
+          bucketInterval.current = null;
+        }
+        isBucketActive.current = false;
+      }
+    }, 16); // ~60 FPS (16ms intervals)
+  }, [send]);
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -27,34 +64,22 @@ export function useImageUpload() {
       const imageData = ctx.getImageData(0, 0, 64, 64);
       const pixels = imageData.data; // RGBA array
 
-      // Convert to array of {x, y, r, g, b} objects
-      const pixelData: { x: number; y: number; r: number; g: number; b: number }[] = [];
+      // Convert to array of {x, y, r, g, b} objects and add to queue
       for (let y = 0; y < 64; y++) {
         for (let x = 0; x < 64; x++) {
           const index = (y * 64 + x) * 4; // 4 bytes per pixel (RGBA)
           const r = pixels[index];
           const g = pixels[index + 1];
           const b = pixels[index + 2];
-          pixelData.push({ x, y, r, g, b });
+          pixelQueue.current.push({ x, y, r, g, b });
         }
       }
 
-      // Send to backend
-      try {
-        const response = await fetch(UPDATE_IMAGE_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ pixels: pixelData }),
-        });
-        if (response.ok) {
-          console.log("Image uploaded successfully");
-        } else {
-          console.error("Failed to upload image:", response.statusText);
-        }
-      } catch (error) {
-        console.error("Error uploading image:", error);
+      console.log(`Added ${pixelQueue.current.length} pixels to queue for upload`);
+      
+      // Start the bucket if it's not already running
+      if (!isBucketActive.current) {
+        startBucket();
       }
 
       // Clear the file input
