@@ -10,6 +10,14 @@
   background-color: #f0f0f0;
 }
 
+.green-text {
+  color: green;
+}
+
+.red-text {
+  color: red;
+}
+
 .canvas-container {
   display: flex;
   justify-content: center;

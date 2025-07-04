@@ -83,11 +83,7 @@ async def update_image(data: dict):
     if not pixels:
         return JSONResponse(content={"message": "No pixel data provided"}, status_code=400)
 
-    from .utils import reset_canvas, broadcast_reset, update_pixel, broadcast_canvas_update
-
-    # Reset canvas to black first
-    # await reset_canvas()
-    # await broadcast_reset()
+    from .utils import update_pixel, broadcast_canvas_update
 
     # Update with new pixel data
     for pixel in pixels:

@@ -21,45 +21,134 @@ interface ResetMessage {
 
 type WebSocketMessage = PixelUpdate | InitMessage | ResetMessage;
 
-export function useWebSocket(url: string) {
-  const [ws, setWs] = useState<WebSocket | null>(null);
-  const [messages, setMessages] = useState<WebSocketMessage[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
+// Singleton WebSocket manager
+class WebSocketManager {
+  private static instance: WebSocketManager;
+  private ws: WebSocket | null = null;
+  private url: string = '';
+  private listeners: Set<(message: WebSocketMessage) => void> = new Set();
+  private connectionState: boolean = false;
+  private connectionStateListeners: Set<(connected: boolean) => void> = new Set();
 
-  useEffect(() => {
-    const socket = new WebSocket(url);
-    setWs(socket);
+  static getInstance(): WebSocketManager {
+    if (!WebSocketManager.instance) {
+      WebSocketManager.instance = new WebSocketManager();
+    }
+    return WebSocketManager.instance;
+  }
 
-    socket.onopen = () => {
+  connect(url: string) {
+    if (this.ws && this.url === url) {
+      return; // Already connected to this URL
+    }
+
+    if (this.ws) {
+      this.ws.close();
+    }
+
+    this.url = url;
+    this.ws = new WebSocket(url);
+
+    this.ws.onopen = () => {
       console.log('WebSocket connected');
-      setIsConnected(true);
+      this.connectionState = true;
+      this.notifyConnectionState(true);
     };
 
-    socket.onmessage = (event) => {
+    this.ws.onmessage = (event) => {
       const data: WebSocketMessage = JSON.parse(event.data);
-      console.log('WebSocket message received:', data); // Debug log
-      setMessages((prev) => [...prev, data]);
+      console.log("message", data);
+      this.listeners.forEach(listener => listener(data));
     };
 
-    socket.onerror = (error) => {
+    this.ws.onerror = (error) => {
       console.error('WebSocket error:', error);
-      setIsConnected(false);
+      this.connectionState = false;
+      this.notifyConnectionState(false);
     };
 
-    socket.onclose = () => {
+    this.ws.onclose = () => {
       console.log('WebSocket closed');
-      setIsConnected(false);
+      this.connectionState = false;
+      this.notifyConnectionState(false);
+      this.ws = null;
     };
+  }
 
-    return () => socket.close();
-  }, [url]);
-
-  const send = (data: PixelUpdate) => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(data));
+  send(data: PixelUpdate) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(data));
     } else {
       console.warn('WebSocket is not connected');
     }
+  }
+
+  addMessageListener(listener: (message: WebSocketMessage) => void) {
+    this.listeners.add(listener);
+  }
+
+  removeMessageListener(listener: (message: WebSocketMessage) => void) {
+    this.listeners.delete(listener);
+  }
+
+  addConnectionStateListener(listener: (connected: boolean) => void) {
+    this.connectionStateListeners.add(listener);
+    // Immediately notify with current state
+    listener(this.connectionState);
+  }
+
+  removeConnectionStateListener(listener: (connected: boolean) => void) {
+    this.connectionStateListeners.delete(listener);
+  }
+
+  private notifyConnectionState(connected: boolean) {
+    this.connectionStateListeners.forEach(listener => listener(connected));
+  }
+
+  isConnected(): boolean {
+    return this.connectionState;
+  }
+
+  disconnect() {
+    if (this.ws) {
+      this.ws.close();
+    }
+  }
+}
+
+export function useWebSocket(url: string) {
+  const [messages, setMessages] = useState<WebSocketMessage[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Whenever the URL changes, we need to reconnect to the new WebSocket
+  useEffect(() => {
+    const manager = WebSocketManager.getInstance();
+    
+    // Connect to the WebSocket
+    manager.connect(url);
+
+    // Set up message listener
+    const messageListener = (data: WebSocketMessage) => {
+      setMessages((prev) => [...prev, data]);
+    };
+    manager.addMessageListener(messageListener);
+
+    // Set up connection state listener
+    const connectionListener = (connected: boolean) => {
+      setIsConnected(connected);
+    };
+    manager.addConnectionStateListener(connectionListener);
+
+    // Cleanup
+    return () => {
+      manager.removeMessageListener(messageListener);
+      manager.removeConnectionStateListener(connectionListener);
+    };
+  }, [url]);
+
+  const send = (data: PixelUpdate) => {
+    const manager = WebSocketManager.getInstance();
+    manager.send(data);
   };
 
   return { messages, send, isConnected };
