@@ -87,6 +87,33 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
     };
   }, []);
 
+  // Global mouse event handlers to ensure drawing stops properly
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isDrawing) {
+        setIsDrawing(false);
+        lastPosRef.current = null;
+      }
+    };
+
+    const handleGlobalMouseLeave = () => {
+      if (isDrawing) {
+        setIsDrawing(false);
+        lastPosRef.current = null;
+      }
+    };
+
+    // Add global event listeners
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    document.addEventListener('mouseleave', handleGlobalMouseLeave);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
+      document.removeEventListener('mouseleave', handleGlobalMouseLeave);
+    };
+  }, [isDrawing]);
+
   // Update canvas state from WebSocket messages
   useEffect(() => {
     if (!messages.length) return;
@@ -162,32 +189,48 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
     }
   }, [startBucket]);
 
-  // Bresenham's line algorithm to draw continuous lines (optimistic updates only)
+  // Improved Bresenham's line algorithm with safety checks
   const drawLine = useCallback((x0: number, y0: number, x1: number, y1: number) => {
+    // Safety check to prevent infinite loops
+    if (x0 === x1 && y0 === y1) {
+      updatePixelOptimistically(x0, y0, selectedColor.r, selectedColor.g, selectedColor.b);
+      return;
+    }
+
     let dx = Math.abs(x1 - x0);
     let dy = Math.abs(y1 - y0);
     let sx = x0 < x1 ? 1 : -1;
     let sy = y0 < y1 ? 1 : -1;
     let err = dx - dy;
 
-    while (true) {
-      if (x0 >= 0 && x0 < 64 && y0 >= 0 && y0 < 64) {
-        updatePixelOptimistically(x0, y0, selectedColor.r, selectedColor.g, selectedColor.b);
+    let currentX = x0;
+    let currentY = y0;
+    let maxSteps = Math.max(dx, dy) + 1; // Safety limit
+    let steps = 0;
+
+    while (steps < maxSteps) {
+      if (currentX >= 0 && currentX < 64 && currentY >= 0 && currentY < 64) {
+        updatePixelOptimistically(currentX, currentY, selectedColor.r, selectedColor.g, selectedColor.b);
       }
-      if (x0 === x1 && y0 === y1) break;
+      
+      if (currentX === x1 && currentY === y1) break;
+      
       let e2 = 2 * err;
       if (e2 > -dy) {
         err -= dy;
-        x0 += sx;
+        currentX += sx;
       }
       if (e2 < dx) {
         err += dx;
-        y0 += sy;
+        currentY += sy;
       }
+      
+      steps++;
     }
   }, [selectedColor, updatePixelOptimistically]);
 
   const handleMouseDown = (event: React.MouseEvent) => {
+    event.preventDefault(); // Prevent text selection
     const rect = event.currentTarget.getBoundingClientRect();
     const x = Math.floor((event.clientX - rect.left) / (rect.width / 64));
     const y = Math.floor((event.clientY - rect.top) / (rect.height / 64));
@@ -195,13 +238,14 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
     if (x >= 0 && x < 64 && y >= 0 && y < 64) {
       setIsDrawing(true);
       lastPosRef.current = { x, y };
-      drawLine(x, y, x, y); // Single pixel on click
+      updatePixelOptimistically(x, y, selectedColor.r, selectedColor.g, selectedColor.b);
     }
   };
 
   const handleMouseMove = (event: React.MouseEvent) => {
     if (!isDrawing) return;
     
+    event.preventDefault(); // Prevent text selection
     const rect = event.currentTarget.getBoundingClientRect();
     const x = Math.floor((event.clientX - rect.left) / (rect.width / 64));
     const y = Math.floor((event.clientY - rect.top) / (rect.height / 64));
@@ -213,7 +257,14 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
     lastPosRef.current = { x, y };
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (event: React.MouseEvent) => {
+    event.preventDefault();
+    setIsDrawing(false);
+    lastPosRef.current = null;
+  };
+
+  const handleMouseLeave = (event: React.MouseEvent) => {
+    event.preventDefault();
     setIsDrawing(false);
     lastPosRef.current = null;
   };
@@ -224,7 +275,8 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+      style={{ userSelect: 'none' }} // Prevent text selection
     >
       {canvasState.map((row, y) =>
         row.map((pixel, x) => (
