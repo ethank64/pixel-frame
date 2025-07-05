@@ -1,5 +1,0 @@
-name = "pixel-frame-frontend"
-compatibility_date = "2025-07-05"
-
-[site]
-bucket = "./dist" 
