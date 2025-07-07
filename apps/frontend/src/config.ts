@@ -1,8 +1,27 @@
 const production = true;
 
-export const EC2_IP = production ? "3.21.104.21:8000" : "localhost:8000";
+// Define your domain for production. This will be proxied by Cloudflare.
+// For development, keep localhost:8000 if your backend is local.
+export const PRODUCTION_WS_DOMAIN = "ws.pixel-frame.online";
+export const PRODUCTION_API_DOMAIN = "pixel-frame.online"; // Or your main domain if API is on the same EC2, e.g., api.pixel-frame.online if you set up another A record for it
 
-export const WS_URL = `ws://${EC2_IP}/api/ws/canvas`;
-export const API_BASE_URL = `http://${EC2_IP}/api`;
-export const UPDATE_IMAGE_URL = `http://${EC2_IP}/api/update_image`;
-export const RESET_URL = `http://${EC2_IP}/api/reset`;
+// Your local development server's IP/Port for WebSocket and API
+export const DEV_BACKEND_IP_PORT = "localhost:8000";
+
+// --- Derived URLs ---
+
+// Determine the base domain for WebSockets
+const CURRENT_WS_DOMAIN = production ? PRODUCTION_WS_DOMAIN : DEV_BACKEND_IP_PORT;
+// Determine the base domain for HTTP API
+const CURRENT_API_DOMAIN = production ? PRODUCTION_API_DOMAIN : DEV_BACKEND_IP_PORT;
+
+
+// WebSocket URL: MUST be wss:// for production
+export const WS_URL = `wss://${CURRENT_WS_DOMAIN}/api/ws/canvas`;
+
+// API Base URL: MUST be https:// for production
+export const API_BASE_URL = `https://${CURRENT_API_DOMAIN}/api`;
+
+// Specific API Endpoints using the base URL
+export const UPDATE_IMAGE_URL = `${API_BASE_URL}/update_image`;
+export const RESET_URL = `${API_BASE_URL}/reset`;
