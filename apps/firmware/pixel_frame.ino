@@ -132,6 +132,9 @@ void connectToWiFi() {
     ssid = "eduroam";
     wifi_username = "ek792523@ohio.edu";
     wifi_password = "Hotdog8864*";
+  } else if (network == "home") {
+    ssid = "WIN_706012";
+    wifi_password = "nh2jcpmq4h";
   }
 
   Serial.print("Connecting to Wi-Fi: ");
