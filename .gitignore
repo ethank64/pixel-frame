@@ -20,6 +20,7 @@ apps/backend/.venv/
 *.hex
 *.bin
 .vscode/
+secrets.h
 
 # Editor
 .DS_Store

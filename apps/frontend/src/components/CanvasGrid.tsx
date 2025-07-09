@@ -260,23 +260,28 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
   };
 
   return (
-    <div
-      className="canvas-grid"
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseLeave}
-      style={{ userSelect: 'none' }} // Prevent text selection
-    >
-      {canvasState.map((row, y) =>
-        row.map((pixel, x) => (
-          <div
-            key={`${x}-${y}`}
-            className="pixel"
-            style={{ backgroundColor: `rgb(${pixel.r}, ${pixel.g}, ${pixel.b})` }}
-          />
-        ))
-      )}
+    <div className="canvas-container">
+      <div className="test no-border">
+        
+      </div>
+      <div
+        className="canvas-grid no-border"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        style={{ userSelect: 'none' }} // Prevent text selection
+      >
+        {canvasState.map((row, y) =>
+          row.map((pixel, x) => (
+            <div
+              key={`${x}-${y}`}
+              className="pixel"
+              style={{ backgroundColor: `rgb(${pixel.r}, ${pixel.g}, ${pixel.b})` }}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }

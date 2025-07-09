@@ -1,6 +1,7 @@
 /* ----------------------------------------------------------------------
 Sketch to connect a 64x64 RGB matrix to a WebSocket server and display pixel updates.
 Designed for MatrixPortal ESP32-S3.
+Make sure to set up a secrets.h file with the correct credentials for your network.
 ------------------------------------------------------------------------- */
 
 #include <Adafruit_Protomatter.h>
@@ -8,7 +9,7 @@ Designed for MatrixPortal ESP32-S3.
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <math.h> // Required for pow() function for gamma correction
-
+#include "secrets.h"
 
 /* ----------------------------------------------------------------------
 Pin configuration for MatrixPortal ESP32-S3 - 64x64 matrix with 5 address pins
@@ -31,9 +32,10 @@ Adafruit_Protomatter matrix(
 // A simple gamma correction lookup table
 uint8_t gamma8[256];
 
-// Wi-Fi and WebSocket configuration
+// I have different networks saved for different locations I'm at
 const char* network = "columbus";
 
+// Set later on depending on network
 char* ssid;
 char* wifi_username;
 char* wifi_password;
@@ -54,7 +56,7 @@ void connectToWiFi();
 /*
  * err
  * @param x 
- * @brief 
+ * @brief Displays an error message on the matrix
  */
 void err(int x);
 
@@ -63,25 +65,30 @@ void err(int x);
  * @param type
  * @param payload
  * @param length
- * @brief 
+ * @brief Handles WebSocket events from the EC2
  */
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
 
+/*
+ * writeText
+ * @param message
+ * @brief Writes text to the matrix
+ */
 void writeText(char* message);
 
 /*
  * setupGammaTable
- * @brief Initializes the gamma correction lookup table.
  * @param gammaValue The gamma correction factor (e.g., 2.2).
+ * @brief Initializes the gamma correction lookup table.
  */
 void setupGammaTable(float gammaValue);
 
 /*
  * getGammaCorrectedColor
- * @brief Applies gamma correction to RGB values and returns a 16-bit color.
  * @param r Red component (0-255).
  * @param g Green component (0-255).
  * @param b Blue component (0-255).
+ * @brief Applies gamma correction to RGB values and returns a 16-bit color.
  * @return A 16-bit color value (RGB565) with gamma correction applied.
  */
 uint16_t getGammaCorrectedColor(uint8_t r, uint8_t g, uint8_t b);
@@ -122,19 +129,18 @@ void loop() {
   webSocket.loop();
 }
 
-
 // Function definitions
 void connectToWiFi() {
   if (network == "columbus") {
-    ssid = "SpectrumSetup-7F";
-    wifi_password = "cameraladder846";
+    ssid = COLUMBUS_SSID;
+    wifi_password = COLUMBUS_PASSWORD
   } else if (network == "ou") {
-    ssid = "eduroam";
-    wifi_username = "ek792523@ohio.edu";
-    wifi_password = "Hotdog8864*";
+    ssid = OU_SSID;
+    wifi_username = OU_USERNAME;
+    wifi_password = OU_PASSWORD;
   } else if (network == "home") {
-    ssid = "WIN_706012";
-    wifi_password = "nh2jcpmq4h";
+    ssid = HOME_SSID;
+    wifi_password = HOME_PASSWORD;
   }
 
   Serial.print("Connecting to Wi-Fi: ");
