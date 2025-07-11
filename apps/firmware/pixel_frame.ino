@@ -133,7 +133,7 @@ void loop() {
 void connectToWiFi() {
   if (network == "columbus") {
     ssid = COLUMBUS_SSID;
-    wifi_password = COLUMBUS_PASSWORD
+    wifi_password = COLUMBUS_PASSWORD;
   } else if (network == "ou") {
     ssid = OU_SSID;
     wifi_username = OU_USERNAME;
