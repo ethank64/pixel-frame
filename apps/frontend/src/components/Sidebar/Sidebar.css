@@ -1,0 +1,15 @@
+.sidebar-container {
+    display: grid;
+    width: 32px;
+    height: 512px;
+    /* Each pixel is 8px */
+    grid-template-columns: repeat(4, 8px);
+    grid-template-rows: repeat(64, 8px);
+    background-color: red;
+}
+
+.sidebar-item {
+    grid-column: 1 / -1;
+    grid-row: span 4;
+    background-color: blue;
+}

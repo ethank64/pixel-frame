@@ -1,7 +1,7 @@
 // src/App.tsx
 import { useState } from "react";
-import CanvasGrid from "./components/CanvasGrid";
-import ColorPicker from "./components/ColorPicker";
+import CanvasGrid from "./components/CanvasGrid/CanvasGrid";
+import ColorPicker from "./components/ColorPicker/ColorPicker";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useImageUpload } from "./hooks/useImageUpload";
 import { useWebcam } from "./hooks/useWebcam";
