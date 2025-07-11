@@ -1,16 +1,18 @@
 <div style="text-align: center;">
-  <img src="https://github.com/user-attachments/assets/15544e6e-5e91-4215-aa72-e4102be39003" alt="pixel-frame-cropped" style="display: block; margin: 0 auto;">
-  <br> <p>
-    <a href="https://www.linkedin.com/in/ethan-knotts-4b349a2b6/" target="_blank">
+  <img src="https://github.com/user-attachments/assets/15544e6e-5e91-4215-aa72-e4102be39003" alt="pixel-frame-cropped" style="display: block; margin: 0 auto;" width="300">
+  <br>
+  <a href="YOUR_PROJECT_LIVE_DEMO_LINK_HERE" target="_blank">View Live Demo</a>
+  <br><br> <div style="text-align: center;">
+    <a href="YOUR_LINKEDIN_PROFILE_URL" target="_blank" style="margin: 0 5px;">
       <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn Profile">
     </a>
-    <a href="https://github.com/ethank64/pixel-frame/commits/main" target="_blank">
-      <img src="https://img.shields.io/github/commits-since/ethank64/pixel-frame/main?style=for-the-badge&label=commits" alt="Commits Since Last Release">
+    <a href="https://github.com/YOUR_USERNAME/YOUR_REPOSITORY/commits/main" target="_blank" style="margin: 0 5px;">
+      <img src="https://img.shields.io/github/commits-since/YOUR_USERNAME/YOUR_REPOSITORY/main?style=for-the-badge&label=commits" alt="Commits Since Last Release">
     </a>
-    <a href="https://github.com/ethank64/pixel-frame/graphs/contributors" target="_blank">
-      <img src="https://img.shields.io/github/contributors/ethank64/pixel-frame?style=for-the-badge&label=contributors" alt="Contributors">
+    <a href="https://github.com/YOUR_USERNAME/YOUR_REPOSITORY/graphs/contributors" target="_blank" style="margin: 0 5px;">
+      <img src="https://img.shields.io/github/contributors/YOUR_USERNAME/YOUR_REPOSITORY?style=for-the-badge&label=contributors" alt="Contributors">
     </a>
-  </p>
+  </div>
 </div>
 
 # Brief
