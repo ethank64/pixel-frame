@@ -94,14 +94,38 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
       }
     };
 
+    const handleImageUpdate = (event: CustomEvent) => {
+      const message = event.detail;
+      console.log('Received local image update:', message);
+      
+      if (message.type === 'image_update') {
+        // Reset to black first
+        for (let y = 0; y < 64; y++) {
+          for (let x = 0; x < 64; x++) {
+            canvasRef.current[y][x] = { r: 0, g: 0, b: 0 };
+          }
+        }
+        // Apply all pixels from the image update
+        message.canvas?.forEach((pixel: any) => {
+          if (pixel.x >= 0 && pixel.x < 64 && pixel.y >= 0 && pixel.y < 64) {
+            canvasRef.current[pixel.y][pixel.x] = { r: pixel.r, g: pixel.g, b: pixel.b };
+          }
+        });
+        // Update state to trigger re-render
+        setCanvasState([...canvasRef.current.map(row => [...row])]);
+      }
+    };
+
     // Add global event listeners
     document.addEventListener('mouseup', handleGlobalMouseUp);
     document.addEventListener('mouseleave', handleGlobalMouseLeave);
+    window.addEventListener('imageUpdate', handleImageUpdate as EventListener);
 
     // Cleanup
     return () => {
       document.removeEventListener('mouseup', handleGlobalMouseUp);
       document.removeEventListener('mouseleave', handleGlobalMouseLeave);
+      window.removeEventListener('imageUpdate', handleImageUpdate as EventListener);
     };
   }, [isDrawing]);
 
@@ -114,6 +138,7 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
     const newMessages = messages.slice(startIndex);
     
     for (const message of newMessages) {
+      console.log('Processing message:', message.type, 'at index:', messages.indexOf(message), 'total messages:', messages.length);
       // Update the ref directly to avoid batching issues
       if (message.type === 'init') {
         // Reset to black first
@@ -139,6 +164,19 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
           g: message.g,
           b: message.b,
         };
+      } else if (message.type === 'image_update') {
+        // Reset to black first
+        for (let y = 0; y < 64; y++) {
+          for (let x = 0; x < 64; x++) {
+            canvasRef.current[y][x] = { r: 0, g: 0, b: 0 };
+          }
+        }
+        // Apply all pixels from the image update
+        message.canvas?.forEach((pixel: any) => {
+          if (pixel.x >= 0 && pixel.x < 64 && pixel.y >= 0 && pixel.y < 64) {
+            canvasRef.current[pixel.y][pixel.x] = { r: pixel.r, g: pixel.g, b: pixel.b };
+          }
+        });
       } else if (message.type === 'reset') {
         for (let y = 0; y < 64; y++) {
           for (let x = 0; x < 64; x++) {

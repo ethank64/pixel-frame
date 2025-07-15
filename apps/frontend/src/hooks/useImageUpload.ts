@@ -1,76 +1,16 @@
 import { useRef, useCallback } from 'react';
 import { useWebSocket } from './useWebSocket';
-import { WS_URL, RESET_URL } from '../config';
+import { WS_URL } from '../config';
 
 export function useImageUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { send } = useWebSocket(WS_URL);
-  
-  // Pixel queue for batching updates
-  const pixelQueue = useRef<{ x: number; y: number; r: number; g: number; b: number }[]>([]);
-  const bucketInterval = useRef<NodeJS.Timeout | null>(null);
-  const isBucketActive = useRef(false);
-
-  // Reset canvas function
-  const resetCanvas = useCallback(async () => {
-    try {
-      const response = await fetch(RESET_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to reset canvas: ${response.statusText}`);
-      }
-      
-      console.log('Canvas reset successfully');
-    } catch (error) {
-      console.error('Error resetting canvas:', error);
-    }
-  }, []);
-
-  // Leaky bucket: drip pixels at fixed intervals
-  const startBucket = useCallback(() => {
-    if (isBucketActive.current) return;
-    
-    isBucketActive.current = true;
-    bucketInterval.current = setInterval(() => {
-      if (pixelQueue.current.length > 0) {
-        // Take one pixel from the queue and send it
-        const pixel = pixelQueue.current.shift();
-        if (pixel) {
-          send({
-            type: 'pixel_update' as const,
-            x: pixel.x,
-            y: pixel.y,
-            r: pixel.r,
-            g: pixel.g,
-            b: pixel.b,
-          });
-        }
-      } else {
-        // Stop the bucket when queue is empty
-        if (bucketInterval.current) {
-          clearInterval(bucketInterval.current);
-          bucketInterval.current = null;
-        }
-        isBucketActive.current = false;
-      }
-    }, 16); // ~60 FPS (16ms intervals)
-  }, [send]);
-
-  const isBlack = (r: number, g: number, b: number) => {
-    return r === 0 && g === 0 && b === 0;
-  }
+  const { sendBinary } = useWebSocket(WS_URL);
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Reset canvas first
-    await resetCanvas();
+    // No need to reset canvas first - we'll send the full image data anyway
 
     // Create a canvas to process the image
     const canvas = document.createElement('canvas');
@@ -91,25 +31,58 @@ export function useImageUpload() {
       const imageData = ctx.getImageData(0, 0, 64, 64);
       const pixels = imageData.data; // RGBA array
 
-      // Convert to array of {x, y, r, g, b} objects and add to queue
+      // Create binary data for all pixels (including black ones for full image update)
+      const binaryData = new ArrayBuffer(2 + 64 * 64 * 5); // 2 bytes for count + 64*64 pixels * 5 bytes each
+      const view = new DataView(binaryData);
+      
+      let pixelCount = 0;
+      let offset = 2; // Start after the 2-byte count
+      
       for (let y = 0; y < 64; y++) {
         for (let x = 0; x < 64; x++) {
           const index = (y * 64 + x) * 4; // 4 bytes per pixel (RGBA)
           const r = pixels[index];
           const g = pixels[index + 1];
           const b = pixels[index + 2];
-          if (!isBlack(r, g, b)) {
-            pixelQueue.current.push({ x, y, r, g, b });
-          }
+          
+          // Write pixel data: x, y, r, g, b (5 bytes)
+          view.setUint8(offset, x);
+          view.setUint8(offset + 1, y);
+          view.setUint8(offset + 2, r);
+          view.setUint8(offset + 3, g);
+          view.setUint8(offset + 4, b);
+          
+          offset += 5;
+          pixelCount++;
         }
       }
-
-      console.log(`Added ${pixelQueue.current.length} pixels to queue for upload`);
       
-      // Start the bucket if it's not already running
-      if (!isBucketActive.current) {
-        startBucket();
+      // Set the pixel count in the first 2 bytes
+      view.setUint16(0, pixelCount, true); // Little-endian
+      
+      console.log(`Sending binary image data with ${pixelCount} pixels, size: ${binaryData.byteLength} bytes`);
+      
+      // Send the binary data
+      sendBinary(binaryData);
+      
+      // Also update the local canvas immediately for the sender
+      // This ensures the sender sees their image right away
+      const canvasPixels = [];
+      for (let y = 0; y < 64; y++) {
+        for (let x = 0; x < 64; x++) {
+          const index = (y * 64 + x) * 4; // 4 bytes per pixel (RGBA)
+          const r = pixels[index];
+          const g = pixels[index + 1];
+          const b = pixels[index + 2];
+          canvasPixels.push({ x, y, r, g, b });
+        }
       }
+      
+      // Trigger a local image update by dispatching a custom event
+      const imageUpdateEvent = new CustomEvent('imageUpdate', {
+        detail: { type: 'image_update', canvas: canvasPixels }
+      });
+      window.dispatchEvent(imageUpdateEvent);
 
       // Clear the file input
       if (fileInputRef.current) {
