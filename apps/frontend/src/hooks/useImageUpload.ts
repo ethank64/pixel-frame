@@ -1,34 +1,10 @@
 import { useRef, useCallback } from 'react';
 import { useWebSocket } from './useWebSocket';
-import { WS_URL, RESET_URL } from '../config';
+import { WS_URL } from '../config';
 
 export function useImageUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { send, sendBinary } = useWebSocket(WS_URL);
-
-  // Reset canvas function
-  const resetCanvas = useCallback(async () => {
-    try {
-      const response = await fetch(RESET_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to reset canvas: ${response.statusText}`);
-      }
-      
-      console.log('Canvas reset successfully');
-    } catch (error) {
-      console.error('Error resetting canvas:', error);
-    }
-  }, []);
-
-  const isBlack = (r: number, g: number, b: number) => {
-    return r === 0 && g === 0 && b === 0;
-  }
+  const { sendBinary } = useWebSocket(WS_URL);
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
