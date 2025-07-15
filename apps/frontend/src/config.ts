@@ -1,4 +1,4 @@
-const production = false;
+const production = true;
 
 // Define your domain for production. This will be proxied by Cloudflare.
 // For development, keep localhost:8000 if your backend is local.
