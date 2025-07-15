@@ -198,7 +198,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       writeText("");
       break;
     case WStype_TEXT: {
-      Serial.printf("Received message, length: %d bytes\n", length);
+      Serial.printf("Received text message, length: %d bytes\n", length);
       DynamicJsonDocument doc(16384);
       DeserializationError error = deserializeJson(doc, payload);
       if (error) {
@@ -240,6 +240,69 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       } else if (strcmp(msg_type, "reset") == 0) {
         matrix.fillScreen(0);
         matrix.show();
+      }
+      break;
+    }
+    case WStype_BIN: {
+      Serial.printf("Received binary message, length: %d bytes\n", length);
+      
+      if (length == 5) {
+        // Single pixel update: 5 bytes for x, y, r, g, b
+        uint8_t x = payload[0];
+        uint8_t y = payload[1];
+        uint8_t r = payload[2];
+        uint8_t g = payload[3];
+        uint8_t b = payload[4];
+        
+        Serial.printf("Binary pixel update: x=%d, y=%d, r=%d, g=%d, b=%d\n", x, y, r, g, b);
+        uint16_t color = getGammaCorrectedColor(r, g, b);
+        matrix.drawPixel(x, y, color);
+        matrix.show();
+        Serial.println("Matrix updated with binary pixel");
+        
+      } else if (length == 2 + 64 * 64 * 5) {
+        // Full image update: count + all 64x64 pixels (4096 pixels)
+        uint16_t pixel_count = (payload[1] << 8) | payload[0]; // Little-endian
+        Serial.printf("Binary image update with %d pixels\n", pixel_count);
+        
+        matrix.fillScreen(0);
+        
+        for (uint16_t i = 0; i < pixel_count; i++) {
+          uint16_t offset = 2 + (i * 5);
+          uint8_t x = payload[offset];
+          uint8_t y = payload[offset + 1];
+          uint8_t r = payload[offset + 2];
+          uint8_t g = payload[offset + 3];
+          uint8_t b = payload[offset + 4];
+          
+          uint16_t color = getGammaCorrectedColor(r, g, b);
+          matrix.drawPixel(x, y, color);
+        }
+        
+        matrix.show();
+        Serial.println("Matrix updated with binary image");
+        
+      } else {
+        // Initial canvas state: count + non-black pixel data
+        uint16_t pixel_count = (payload[1] << 8) | payload[0]; // Little-endian
+        Serial.printf("Binary initial canvas with %d non-black pixels\n", pixel_count);
+        
+        matrix.fillScreen(0);
+        
+        for (uint16_t i = 0; i < pixel_count; i++) {
+          uint16_t offset = 2 + (i * 5);
+          uint8_t x = payload[offset];
+          uint8_t y = payload[offset + 1];
+          uint8_t r = payload[offset + 2];
+          uint8_t g = payload[offset + 3];
+          uint8_t b = payload[offset + 4];
+          
+          uint16_t color = getGammaCorrectedColor(r, g, b);
+          matrix.drawPixel(x, y, color);
+        }
+        
+        matrix.show();
+        Serial.println("Matrix updated with binary initial canvas");
       }
       break;
     }
