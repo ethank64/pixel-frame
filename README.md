@@ -21,7 +21,7 @@ This project uses a monorepo with pnpm. Inside of the apps folder, there are 3 m
 
 * **Backend:**
   ```bash
-  uvicorn main:app --reload --host 0.0.0.0 --port 8000
+  python main.py
   ```
 
 * **Frontend:**

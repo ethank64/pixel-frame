@@ -204,7 +204,8 @@ void writeText(char* message) {
   matrix.show();
 }
 
-// How we detect
+// How we detect events from the server
+// TODO: Split up into multiple functions
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
     case WStype_DISCONNECTED:
