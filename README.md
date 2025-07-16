@@ -32,3 +32,5 @@ This project uses a monorepo with pnpm. Inside of the apps folder, there are 3 m
 * **Firmware:**
   Using Arduino IDE, make sure you have a `secrets.h` in the same directory, then compile and send the script to your Adafruit Matrix Portal.
   
+  **Make sure** to set the `WEBSOCKETS_MAX_DATA_SIZE` **in the original source code** for the websocket library. Image uploads will not work if you don't.
+  
