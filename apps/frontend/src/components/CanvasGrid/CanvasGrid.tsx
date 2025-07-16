@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import './CanvasGrid.css';
 import { WS_URL } from '../../config';
-import Sidebar from '../Sidebar/Sidebar';
+// import Sidebar from '../Sidebar/Sidebar';
 
 type Pixel = { r: number; g: number; b: number };
 type PixelUpdate = { x: number; y: number; r: number; g: number; b: number };
