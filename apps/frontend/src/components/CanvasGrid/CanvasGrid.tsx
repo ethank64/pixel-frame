@@ -300,7 +300,7 @@ function CanvasGrid({ selectedColor }: CanvasGridProps) {
 
   return (
     <div className="canvas-container">
-      <Sidebar />
+      {/* <Sidebar /> */}
 
       <div
         className="canvas-grid no-border"
