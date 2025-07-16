@@ -47,6 +47,32 @@ async def broadcast_canvas_update(x: int, y: int, r: int, g: int, b: int):
         except Exception as e:
             print(f"Failed to send to client: {e}")
 
+async def handle_binary_image_update(binary_data: bytes, sender_websocket):
+    """
+    Handle binary image updates from clients.
+    Format: [count][x][y][r][g][b] for each pixel (including black pixels)
+    """
+    
+    try:
+        # First 2 bytes are the pixel count
+        pixel_count = struct.unpack('H', binary_data[:2])[0]
+        print(f"Received binary image update with {pixel_count} pixels")
+        
+        # Broadcast immediately to reduce latency
+        print(f"Broadcasting image update immediately")
+        broadcast_task = asyncio.create_task(broadcast_image_update(binary_data, sender_websocket))
+        
+        # Update the canvas with all pixels (in parallel with broadcast)
+        print(f"Updating canvas with {pixel_count} pixels")
+        await update_canvas_bulk(binary_data, pixel_count)
+        
+        # Wait for broadcast to complete
+        await broadcast_task
+        print(f"Finished processing image update")
+        
+    except Exception as e:
+        print(f"Error handling binary image update: {e}")
+
 async def broadcast_image_update(binary_data: bytes, sender_websocket):
     """Broadcast a full image update to all connected WebSocket clients except the sender."""
     from .routes import connected_clients
@@ -86,7 +112,6 @@ async def update_canvas_bulk(binary_data: bytes, pixel_count: int):
     save_canvas()
 
 async def reset_canvas():
-    """Reset the canvas to all black."""
     global canvas
     canvas = [[(0, 0, 0) for _ in range(64)] for _ in range(64)]
     save_canvas()
@@ -95,6 +120,7 @@ async def broadcast_reset():
     """Broadcast a reset message to all connected WebSocket clients."""
     from .routes import connected_clients
     reset_message = json.dumps({"type": "reset"})
+    
     for client in connected_clients:
         try:
             await client.send_text(reset_message)

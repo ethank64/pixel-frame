@@ -93,7 +93,6 @@ void setupGammaTable(float gammaValue);
  */
 uint16_t getGammaCorrectedColor(uint8_t r, uint8_t g, uint8_t b);
 
-
 void setup(void) {
   Serial.begin(9600);
 
@@ -116,16 +115,37 @@ void setup(void) {
 
   connectToWiFi();
 
-  // Initialize WebSocket
+  // Initialize WebSocket with more conservative settings
   Serial.println("Attempting WebSocket connection...");
   webSocket.begin(ws_host, ws_port, ws_path);
   webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(1000); // Retry every 1s
-  webSocket.enableHeartbeat(3000, 2000, 2); // Ping every 3s, timeout 2s
+
+  Serial.print("Maximum websocket input size: ");
+  Serial.println(WEBSOCKETS_MAX_DATA_SIZE);
+
+  // More conservative WebSocket settings
+  webSocket.setReconnectInterval(5000); // Retry every 5s instead of 1s
+  webSocket.enableHeartbeat(10000, 5000, 2); // Ping every 10s, timeout 5s
   webSocket.setExtraHeaders("User-Agent: ESP32-PixelCanvas");
 }
 
 void loop() {
+  // Debug connection state periodically
+  static unsigned long lastDebugTime = 0;
+  static bool lastConnectionState = false;
+  
+  if (millis() - lastDebugTime > 5000) { // Every 5 seconds
+    bool currentConnectionState = webSocket.isConnected();
+    if (currentConnectionState != lastConnectionState) {
+      Serial.printf("Connection state changed: %s -> %s, Free heap: %d bytes\n", 
+                    lastConnectionState ? "connected" : "disconnected",
+                    currentConnectionState ? "connected" : "disconnected", 
+                    ESP.getFreeHeap());
+      lastConnectionState = currentConnectionState;
+    }
+    lastDebugTime = millis();
+  }
+  
   webSocket.loop();
 }
 
@@ -184,23 +204,29 @@ void writeText(char* message) {
   matrix.show();
 }
 
-// How we detect
+// How we detect events from the server
+// TODO: Split up into multiple functions
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
     case WStype_DISCONNECTED:
       Serial.println("[WebSocket] Disconnected");
+      Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
+
       if (length > 0) {
         Serial.printf("Disconnect reason: %s\n", payload);
       }
+
       break;
     case WStype_CONNECTED:
       Serial.println("[WebSocket] Connected to server");
+      Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
       writeText("");
       break;
     case WStype_TEXT: {
-      Serial.printf("Received text message, length: %d bytes\n", length);
-      DynamicJsonDocument doc(16384);
+      // Reduced memory allocation - 32KB instead of 160KB
+      DynamicJsonDocument doc(32768);
       DeserializationError error = deserializeJson(doc, payload);
+
       if (error) {
         Serial.print("JSON parse failed: ");
         Serial.println(error.c_str());
@@ -211,7 +237,10 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       if (strcmp(msg_type, "init") == 0) {
         JsonArray canvas = doc["canvas"];
         Serial.printf("Received initial canvas with %d pixels\n", canvas.size());
+        Serial.printf("Free heap before processing: %d bytes\n", ESP.getFreeHeap());
+        
         matrix.fillScreen(0);
+
         for (JsonObject pixel : canvas) {
           int x = pixel["x"];
           int y = pixel["y"];
@@ -221,17 +250,22 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           // Apply gamma correction here
           uint16_t color = getGammaCorrectedColor(r, g, b); 
           matrix.drawPixel(x, y, color);
-          Serial.printf("Drawing pixel: x=%d, y=%d, r=%d, g=%d, b=%d\n", x, y, r, g, b);
+          
+          // Yield every 100 pixels to prevent watchdog issues
+          static int pixelCount = 0;
+          if (++pixelCount % 100 == 0) {
+            yield();
+          }
         }
         matrix.show();
-        Serial.println("Matrix updated with initial state");
+        Serial.printf("Free heap after processing: %d bytes\n", ESP.getFreeHeap());
       } else if (strcmp(msg_type, "pixel_update") == 0) {
         int x = doc["x"];
         int y = doc["y"];
         uint8_t r = doc["r"];
         uint8_t g = doc["g"];
         uint8_t b = doc["b"];
-        Serial.printf("Pixel update: x=%d, y=%d, r=%d, g=%d, b=%d\n", x, y, r, g, b);
+
         // Apply gamma correction here
         uint16_t color = getGammaCorrectedColor(r, g, b);
         matrix.drawPixel(x, y, color);
@@ -245,6 +279,18 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     }
     case WStype_BIN: {
       Serial.printf("Received binary message, length: %d bytes\n", length);
+      Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
+      
+      // Check if message is too large (safety check)
+      if (length > 30000) { // Reduced from 50KB to 30KB
+        Serial.printf("Message too large (%d bytes), ignoring\n", length);
+        break;
+      }
+      
+      // Debug large messages
+      if (length > 1000) {
+        Serial.printf("Large message detected! Free heap: %d bytes\n", ESP.getFreeHeap());
+      }
       
       if (length == 5) {
         // Single pixel update: 5 bytes for x, y, r, g, b
@@ -264,6 +310,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         // Full image update: count + all 64x64 pixels (4096 pixels)
         uint16_t pixel_count = (payload[1] << 8) | payload[0]; // Little-endian
         Serial.printf("Binary image update with %d pixels\n", pixel_count);
+        Serial.printf("Processing large image, Free heap: %d bytes\n", ESP.getFreeHeap());
         
         matrix.fillScreen(0);
         
@@ -277,46 +324,62 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           
           uint16_t color = getGammaCorrectedColor(r, g, b);
           matrix.drawPixel(x, y, color);
+          
+          // Yield every 50 pixels to prevent getting stuck
+          if (i % 50 == 0) {
+            yield();
+          }
         }
         
         matrix.show();
+        Serial.printf("Matrix updated with binary image, Free heap: %d bytes\n", ESP.getFreeHeap());
         Serial.println("Matrix updated with binary image");
         
-      } else {
-        // Initial canvas state: count + non-black pixel data
+      } else if (length >= 2) {
+        // Initial canvas state or image update: count + non-black pixel data
         uint16_t pixel_count = (payload[1] << 8) | payload[0]; // Little-endian
-        Serial.printf("Binary initial canvas with %d non-black pixels\n", pixel_count);
+        Serial.printf("Binary message with %d non-black pixels\n", pixel_count);
+        Serial.printf("Processing message, Free heap: %d bytes\n", ESP.getFreeHeap());
         
         matrix.fillScreen(0);
         
         for (uint16_t i = 0; i < pixel_count; i++) {
           uint16_t offset = 2 + (i * 5);
-          uint8_t x = payload[offset];
-          uint8_t y = payload[offset + 1];
-          uint8_t r = payload[offset + 2];
-          uint8_t g = payload[offset + 3];
-          uint8_t b = payload[offset + 4];
+          if (offset + 4 < length) {  // Bounds check
+            uint8_t x = payload[offset];
+            uint8_t y = payload[offset + 1];
+            uint8_t r = payload[offset + 2];
+            uint8_t g = payload[offset + 3];
+            uint8_t b = payload[offset + 4];
+            
+            uint16_t color = getGammaCorrectedColor(r, g, b);
+            matrix.drawPixel(x, y, color);
+          }
           
-          uint16_t color = getGammaCorrectedColor(r, g, b);
-          matrix.drawPixel(x, y, color);
+          // Yield every 25 pixels to prevent getting stuck
+          if (i % 25 == 0) {
+            yield();
+          }
         }
         
         matrix.show();
-        Serial.println("Matrix updated with binary initial canvas");
+        Serial.printf("Matrix updated, Free heap: %d bytes\n", ESP.getFreeHeap());
+        Serial.println("Matrix updated with binary message");
+      } else {
+        Serial.printf("Unknown binary message format, length: %d\n", length);
       }
       break;
     }
     case WStype_ERROR:
       Serial.println("[WebSocket] Error occurred");
+      Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
       if (length > 0) {
         Serial.printf("Error details: %s\n", payload);
       }
       break;
     case WStype_PING:
-      Serial.println("[WebSocket] Ping received");
       break;
     case WStype_PONG:
-      Serial.println("[WebSocket] Pong sent");
       break;
   }
 }
@@ -324,7 +387,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 void err(int x) {
   uint8_t i;
   pinMode(LED_BUILTIN, OUTPUT);
-  for(i=1;;i++) {
+
+  for (i=1;;i++) {
     digitalWrite(LED_BUILTIN, i & 1);
     delay(x);
   }
@@ -338,4 +402,4 @@ void setupGammaTable(float gammaValue) {
 
 uint16_t getGammaCorrectedColor(uint8_t r, uint8_t g, uint8_t b) {
   return matrix.color565(gamma8[r], gamma8[g], gamma8[b]);
-}
+} 

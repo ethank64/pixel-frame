@@ -1,11 +1,10 @@
 # main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from canvas.routes import router  # Import the canvas router
+from canvas.routes import router
 
 app = FastAPI()
 
-# Allow frontend to talk to backend during dev
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,7 +13,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include the canvas routes with a prefix
 app.include_router(router, prefix="/api")
 
 @app.get("/")

@@ -15,7 +15,7 @@ connected_clients = set()
 @router.websocket("/ws/canvas")
 async def websocket_endpoint(websocket: WebSocket):
     """
-    Entry point for all websocket connections.
+    Entry point for all websocket connections. Establishes a connection with the client.
     Accepts connections, sends initial data, and handles updates.
     Possible messages:
     - text: JSON object with type and data
@@ -28,10 +28,13 @@ async def websocket_endpoint(websocket: WebSocket):
     connected_clients.add(websocket)
 
     try:
+        # Get the canvas data for new clients
         from .utils import get_canvas
         canvas = await get_canvas()
 
-        # Create binary data for non-black pixels
+        # Create binary data for pixels
+        # We use a bytearray to store the data efficiently. Since each color part (red, green, and blue) is
+        # just 0-255, we can use 1 byte per color.
         # Format: [count][x][y][r][g][b] for each non-black pixel
         binary_data = bytearray()
         pixel_count = 0
@@ -42,6 +45,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 # Excludes black pixels
                 if r != 0 or g != 0 or b != 0:
+                    # Use 5 bytes for each pixel that contains coordinate and color
                     binary_data.extend(struct.pack('BBBBB', x, y, r, g, b))
                     pixel_count += 1
         
@@ -55,12 +59,11 @@ async def websocket_endpoint(websocket: WebSocket):
         await asyncio.sleep(1.0)  # Delay for ESP32
 
         while True:
-            # Receive either text or binary data
+            # Receive updates from the client
             message = await websocket.receive()
             
-            # Used for individual pixel updates
             if message["type"] == "websocket.receive":
-                # Unshortened bytes (inefficient)
+                # Unshortened bytes (inefficient, legacy)
                 if "text" in message:
                     # Handle text messages (JSON)
                     data = json.loads(message["text"])
@@ -83,6 +86,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Handle binary messages (image updates)
                     binary_data = message["bytes"]
                     
+                    # Since we define one pixel as 5 bytes, we know that if our message is 5 bytes,
+                    # we're dealing with just one pixel.
                     if len(binary_data) == 5:
                         # Single pixel update
                         x, y, r, g, b = struct.unpack('BBBBB', binary_data)
@@ -90,8 +95,11 @@ async def websocket_endpoint(websocket: WebSocket):
                         update_pixel(x, y, r, g, b)
                         await broadcast_canvas_update(x, y, r, g, b)
                     
+                    # More than 5 bytes, must be several pixels (image)
                     elif len(binary_data) > 5:
                         # Full image update
+                        from .utils import handle_binary_image_update
+
                         await handle_binary_image_update(binary_data, websocket)
 
     except WebSocketDisconnect:
@@ -103,66 +111,12 @@ async def websocket_endpoint(websocket: WebSocket):
         if websocket in connected_clients:
             connected_clients.remove(websocket)
 
-async def handle_binary_image_update(binary_data: bytes, sender_websocket):
-    """
-    Handle binary image updates from clients.
-    Format: [count][x][y][r][g][b] for each pixel (including black pixels)
-    """
-    from .utils import update_canvas_bulk, broadcast_image_update
-    
-    try:
-        # First 2 bytes are the pixel count
-        pixel_count = struct.unpack('H', binary_data[:2])[0]
-        logger.info(f"Received binary image update with {pixel_count} pixels")
-        
-        # Broadcast immediately to reduce latency
-        logger.info(f"Broadcasting image update immediately")
-        broadcast_task = asyncio.create_task(broadcast_image_update(binary_data, sender_websocket))
-        
-        # Update the canvas with all pixels (in parallel with broadcast)
-        logger.info(f"Updating canvas with {pixel_count} pixels")
-        await update_canvas_bulk(binary_data, pixel_count)
-        
-        # Wait for broadcast to complete
-        await broadcast_task
-        logger.info(f"Finished processing image update")
-        
-    except Exception as e:
-        logger.error(f"Error handling binary image update: {e}")
-
 @router.post("/reset")
 async def reset_canvas():
+    """
+    Reset the canvas to all black and broadcasts the updated state to all clients.
+    """
     from .utils import reset_canvas, broadcast_reset
     await reset_canvas()
     await broadcast_reset()
     return JSONResponse(content={"message": "Canvas reset successfully"})
-
-@router.post("/update_image")
-async def update_image(data: dict):
-    """
-    Update the canvas with a new canvas image.
-    Expects a JSON object with a "pixels" key, which is an array of pixel objects.
-    Note: The array is one dimensional
-    """
-    pixels = data.get("pixels", [])
-    if not pixels:
-        return JSONResponse(content={"message": "No pixel data provided"}, status_code=400)
-
-    from .utils import update_pixel, broadcast_canvas_update
-
-    # Update with new pixel data
-    for pixel in pixels:
-        x = pixel.get("x")
-        y = pixel.get("y")
-        r = pixel.get("r")
-        g = pixel.get("g")
-        b = pixel.get("b")
-        if (0 <= x <= 63 and 0 <= y <= 63 and 
-            0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
-            update_pixel(x, y, r, g, b)
-            await broadcast_canvas_update(x, y, r, g, b)
-
-    return JSONResponse(content={"message": "Image updated successfully"})
-
-
-
