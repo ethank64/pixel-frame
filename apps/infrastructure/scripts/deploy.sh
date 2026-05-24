@@ -93,10 +93,12 @@ ssh "${SSH_OPTS[@]}" \
   "set -euo pipefail
    echo '$ECR_PASSWORD' | sudo docker login --username AWS --password-stdin '$ECR_REGISTRY'
    sudo docker pull '$IMAGE_URI'
+   sudo docker network create '${DOCKER_NETWORK:-pixel-frame}' 2>/dev/null || true
    sudo docker rm -f '$CONTAINER_NAME' 2>/dev/null || true
    sudo docker run -d \
      --name '$CONTAINER_NAME' \
      --restart unless-stopped \
+     --network '${DOCKER_NETWORK:-pixel-frame}' \
      -p ${CONTAINER_PORT}:8000 \
      '$IMAGE_URI'
    ready=false
@@ -118,8 +120,26 @@ if [[ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]]; then
   echo "Installing cloudflared tunnel..."
   ssh "${SSH_OPTS[@]}" \
     "ec2-user@$PUBLIC_IP" \
-    "CLOUDFLARE_TUNNEL_TOKEN='$CLOUDFLARE_TUNNEL_TOKEN' BACKEND_CONTAINER_NAME='$CONTAINER_NAME' bash -s" \
+    "CLOUDFLARE_TUNNEL_TOKEN='$CLOUDFLARE_TUNNEL_TOKEN' BACKEND_CONTAINER_NAME='$CONTAINER_NAME' DOCKER_NETWORK='${DOCKER_NETWORK:-pixel-frame}' bash -s" \
     < "$SCRIPT_DIR/install-cloudflared.sh"
+
+  PUBLIC_API_URL="${PUBLIC_API_URL:-https://pixel-frame-api.ethanknotts.com}"
+  echo "Waiting for Cloudflare tunnel at $PUBLIC_API_URL..."
+  tunnel_ready=false
+  for _ in $(seq 1 45); do
+    if curl -sf "$PUBLIC_API_URL/" >/dev/null; then
+      tunnel_ready=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [[ "$tunnel_ready" != "true" ]]; then
+    echo "Cloudflare tunnel health check failed after 90s" >&2
+    ssh "${SSH_OPTS[@]}" "ec2-user@$PUBLIC_IP" \
+      "sudo docker logs cloudflared 2>&1 | tail -30" >&2 || true
+    exit 1
+  fi
 fi
 
 echo ""
@@ -128,5 +148,5 @@ echo "  Image:     $IMAGE_URI"
 echo "  Health:    http://${PUBLIC_IP}:${CONTAINER_PORT}/"
 echo "  WebSocket: ws://${PUBLIC_IP}:${CONTAINER_PORT}/api/ws/canvas"
 if [[ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]]; then
-  echo "  Public API: https://pixel-frame-api.ethanknotts.com/"
+  echo "  Public API: ${PUBLIC_API_URL:-https://pixel-frame-api.ethanknotts.com}/"
 fi
