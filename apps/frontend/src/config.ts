@@ -1,7 +1,8 @@
 const isProd = import.meta.env.PROD;
 
-export const PRODUCTION_WS_DOMAIN = "ws.pixel-frame.online";
-export const PRODUCTION_API_DOMAIN = "pixel-frame.online";
+// Lightsail backend (plain HTTP/WS on port 8000)
+const PRODUCTION_BACKEND_HOST = "52.70.238.148";
+const PRODUCTION_BACKEND_PORT = 8000;
 
 function devOrigin(): string {
   if (typeof window !== "undefined") {
@@ -16,13 +17,15 @@ function toWsOrigin(httpOrigin: string): string {
 }
 
 const devOriginValue = devOrigin();
+const productionApiOrigin = `http://${PRODUCTION_BACKEND_HOST}:${PRODUCTION_BACKEND_PORT}`;
+const productionWsOrigin = `ws://${PRODUCTION_BACKEND_HOST}:${PRODUCTION_BACKEND_PORT}`;
 
 export const WS_URL = isProd
-  ? `wss://${PRODUCTION_WS_DOMAIN}/api/ws/canvas`
+  ? `${productionWsOrigin}/api/ws/canvas`
   : `${toWsOrigin(devOriginValue)}/api/ws/canvas`;
 
 export const API_BASE_URL = isProd
-  ? `https://${PRODUCTION_API_DOMAIN}/api`
+  ? `${productionApiOrigin}/api`
   : `${devOriginValue}/api`;
 
 export const UPDATE_IMAGE_URL = `${API_BASE_URL}/update_image`;
