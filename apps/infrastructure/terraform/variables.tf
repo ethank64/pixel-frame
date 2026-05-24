@@ -32,3 +32,13 @@ variable "container_port" {
   type    = number
   default = 8000
 }
+
+variable "ecr_repository_name" {
+  type    = string
+  default = "pixel-frame-backend"
+}
+
+variable "container_name" {
+  type    = string
+  default = "pixel-frame-backend"
+}

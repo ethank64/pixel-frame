@@ -1,82 +1,100 @@
 # AWS Lightsail backend infrastructure
 
-Deploys the pixel-frame FastAPI/WebSocket backend to a **$5/month** Lightsail instance (nano bundle) running Docker.
+Deploys the pixel-frame FastAPI/WebSocket backend to a **$5/month** Lightsail instance. Infrastructure is managed with **Terraform**; the backend image is built in CI, pushed to **ECR**, and pulled onto the instance over SSH.
 
 ## Layout
 
 ```
 apps/infrastructure/
-  config.example.env      # Copy to config.env (gitignored)
+  config.example.env        # Deploy script defaults
   scripts/
-    provision.ps1         # Create Lightsail instance + static IP + firewall (Windows)
-    provision.sh          # Same as above (Linux/macOS/CI)
-    deploy.ps1            # Build Docker image and deploy to instance (Windows)
-    deploy.sh             # Same as above (Linux/macOS/CI)
-    destroy.ps1           # Tear down Lightsail resources
-    user-data.sh          # Installs Docker on first boot
-  terraform/              # Optional IaC equivalent of provision.ps1
+    deploy.sh               # Pull image from ECR and restart container on Lightsail
+    ensure-static-ip.sh     # Allocate/attach static IP (not importable into Terraform)
+    import-existing.sh      # One-time import of existing Lightsail instance
+    static-ip-json.sh       # Reads static IP for Terraform external data source
+    user-data.sh            # Installs Docker on first boot
+  terraform/
+    main.tf                 # Lightsail instance, static IP, firewall, ECR repository
+    backend.tf              # S3 remote state backend
+    variables.tf
+    outputs.tf
 ```
 
 ## CI/CD
 
-Pushes to `main` that touch `apps/backend/**` or `apps/infrastructure/**` trigger [`.github/workflows/deploy-backend.yml`](../../.github/workflows/deploy-backend.yml), which:
+Pushes to `main` that touch `apps/backend/**` or `apps/infrastructure/**` run [`.github/workflows/deploy-backend.yml`](../../.github/workflows/deploy-backend.yml):
 
-1. Ensures Lightsail infrastructure exists (idempotent provision)
-2. Builds the backend Docker image
-3. Deploys it to the instance
-4. Verifies the public health endpoint
+1. Ensure static IP is allocated and attached
+2. `terraform apply` — Lightsail instance + port rules + ECR
+3. Build backend Docker image
+4. Push to ECR (tagged with git SHA + `latest`)
+5. SSH to Lightsail → `docker pull` → restart container
+6. Verify health endpoint
 
 ### GitHub secrets
 
-Add these in **Settings → Secrets and variables → Actions**:
-
 | Secret | Description |
 |--------|-------------|
-| `AWS_ACCESS_KEY_ID` | IAM access key for deployment |
+| `AWS_ACCESS_KEY_ID` | IAM access key |
 | `AWS_SECRET_ACCESS_KEY` | IAM secret key |
 
-The IAM user/role needs Lightsail permissions to create/manage instances, static IPs, open ports, and download the default SSH key pair. The workflow uses `config.example.env` defaults (no extra secrets required for host/port names).
+IAM permissions needed: Lightsail (manage instances, static IPs, download SSH key), ECR (push/pull/create repository), S3 (Terraform state bucket).
 
-You can also trigger a deploy manually from the **Actions** tab via **workflow_dispatch**.
+## Local deploy
 
-## Prerequisites
-
-- [AWS CLI](https://aws.amazon.com/cli/) authenticated (`aws sts get-caller-identity`)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for deploy)
-- OpenSSH client (`ssh`, `scp`) — included on Windows 10+
-
-## Quick start
-
-```powershell
-cd apps/infrastructure
-Copy-Item config.example.env config.env
-
-# Create Lightsail instance (~$5/mo)
-.\scripts\provision.ps1
-
-# Build backend image and deploy
-.\scripts\deploy.ps1
-```
-
-After deploy, update `apps/firmware/secrets.h`:
-
-```cpp
-#define WS_HOST "<public-ip-from-output>"
-#define WS_PORT 8000
-#define WS_PATH "/api/ws/canvas"
-```
-
-## Terraform (optional)
-
-If you prefer Terraform over the PowerShell provision script:
+**Prerequisites:** AWS CLI, Docker, Terraform, OpenSSH
 
 ```bash
 cd apps/infrastructure/terraform
 terraform init
 terraform apply
-cd ../scripts
-./deploy.ps1
+
+ECR_URL=$(terraform output -raw ecr_repository_url)
+PUBLIC_IP=$(terraform output -raw public_ip)
+
+# Build and push
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${ECR_URL%%/*}"
+docker build -t "$ECR_URL:latest" ../../backend
+docker push "$ECR_URL:latest"
+
+# Deploy to Lightsail
+cd ..
+ECR_REPOSITORY_URL="$ECR_URL" IMAGE_TAG=latest PUBLIC_IP="$PUBLIC_IP" bash scripts/deploy.sh
 ```
+
+After deploy, update `apps/firmware/secrets.h`:
+
+```cpp
+#define WS_HOST "<public-ip>"
+#define WS_PORT 8000
+#define WS_PATH "/api/ws/canvas"
+```
+
+Get the IP with `terraform output -raw public_ip`.
+
+## First-time setup (existing Lightsail instance)
+
+If the Lightsail instance was created before Terraform (e.g. via CLI scripts), import it once:
+
+```bash
+cd apps/infrastructure/terraform
+terraform init
+bash ../scripts/import-existing.sh
+terraform apply
+```
+
+## Terraform state
+
+State is stored in `s3://pixel-frame-terraform-state-497449934068`. The bucket was created during initial setup. For a new AWS account, create it first:
+
+```bash
+aws s3 mb s3://pixel-frame-terraform-state-<account-id> --region us-east-1
+aws s3api put-bucket-versioning \
+  --bucket pixel-frame-terraform-state-<account-id> \
+  --versioning-configuration Status=Enabled
+```
+
+Then update `terraform/backend.tf` with your bucket name.
 
 ## Cost
 
@@ -84,12 +102,12 @@ cd ../scripts
 |----------|-------|
 | Lightsail nano (`nano_3_0`) | $5/mo |
 | Static IP (attached) | Included |
+| ECR storage | ~pennies |
 | Data transfer | 1 TB/mo included |
 
 ## Destroy
 
-```powershell
-.\scripts\destroy.ps1
+```bash
+cd apps/infrastructure/terraform
+terraform destroy
 ```
-
-Or with Terraform: `terraform destroy` in the `terraform/` directory.

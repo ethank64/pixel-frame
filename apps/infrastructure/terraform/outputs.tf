@@ -3,13 +3,21 @@ output "instance_name" {
 }
 
 output "public_ip" {
-  value = aws_lightsail_static_ip.backend.ip_address
+  value = data.external.static_ip.result.ip_address
+}
+
+output "ecr_repository_url" {
+  value = aws_ecr_repository.backend.repository_url
+}
+
+output "ecr_repository_name" {
+  value = aws_ecr_repository.backend.name
 }
 
 output "health_url" {
-  value = "http://${aws_lightsail_static_ip.backend.ip_address}:${var.container_port}/"
+  value = "http://${data.external.static_ip.result.ip_address}:${var.container_port}/"
 }
 
 output "websocket_url" {
-  value = "ws://${aws_lightsail_static_ip.backend.ip_address}:${var.container_port}/api/ws/canvas"
+  value = "ws://${data.external.static_ip.result.ip_address}:${var.container_port}/api/ws/canvas"
 }
