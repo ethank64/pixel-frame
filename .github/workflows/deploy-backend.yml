@@ -82,10 +82,24 @@ jobs:
       - name: Verify public health endpoint
         env:
           PUBLIC_IP: ${{ steps.terraform.outputs.public_ip }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
         run: |
           curl -sf "http://${PUBLIC_IP}:8000/"
           echo ""
           echo "Backend live at http://${PUBLIC_IP}:8000/"
-          curl -sf "https://pixel-frame-api.ethanknotts.com/"
-          echo ""
-          echo "Public API live at https://pixel-frame-api.ethanknotts.com/"
+          if [[ -n "${CLOUDFLARE_TUNNEL_TOKEN}" ]]; then
+            ready=false
+            for _ in $(seq 1 30); do
+              if curl -sf "https://pixel-frame-api.ethanknotts.com/"; then
+                ready=true
+                break
+              fi
+              sleep 2
+            done
+            if [[ "$ready" != "true" ]]; then
+              echo "Cloudflare tunnel health check failed after 60s" >&2
+              exit 1
+            fi
+            echo ""
+            echo "Public API live at https://pixel-frame-api.ethanknotts.com/"
+          fi
