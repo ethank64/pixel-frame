@@ -45,24 +45,6 @@ async def _broadcast_bytes(binary_data: bytes, sender_websocket=None):
     )
 
 
-async def broadcast_slideshow_frame(binary_data: bytes):
-    """Broadcast a slideshow frame to all connected clients."""
-    from .routes import connected_clients
-
-    if not connected_clients:
-        return
-
-    await asyncio.gather(
-        *(client.send_bytes(binary_data) for client in connected_clients),
-        return_exceptions=True,
-    )
-
-
-def replace_canvas(new_canvas: list[list[tuple[int, int, int]]]):
-    global canvas
-    canvas = [row[:] for row in new_canvas]
-
-
 async def broadcast_canvas_update(
     x: int, y: int, r: int, g: int, b: int, sender_websocket=None
 ):

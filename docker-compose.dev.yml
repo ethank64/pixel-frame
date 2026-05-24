@@ -24,11 +24,12 @@ services:
       - "5173:5173"
     environment:
       CHOKIDAR_USEPOLLING: "true"
-      # Proxy /api (HTTP + WebSocket) to production instead of the local backend.
-      VITE_BACKEND_TARGET: https://pixel-frame-api.ethanknotts.com
+      VITE_BACKEND_TARGET: http://backend:8000
     command: >
       sh -c "if [ ! -d node_modules/vite ]; then npm ci --ignore-scripts; fi &&
              npm run dev -w frontend -- --host 0.0.0.0 --port 5173"
+    depends_on:
+      - backend
 
 volumes:
   frontend_node_modules:

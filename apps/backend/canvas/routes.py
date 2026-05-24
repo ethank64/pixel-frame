@@ -1,5 +1,5 @@
 # apps/backend/canvas/routes.py
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 import json
 import logging
@@ -7,7 +7,6 @@ import asyncio
 import struct
 
 from .utils import FULL_IMAGE_SIZE
-from . import slideshow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -115,69 +114,6 @@ async def reset_canvas():
     """Reset the canvas to all black and broadcast the updated state to all clients."""
     from .utils import reset_canvas, broadcast_reset
 
-    await slideshow.stop_slideshow()
     await reset_canvas()
     await broadcast_reset()
     return JSONResponse(content={"message": "Canvas reset successfully"})
-
-
-@router.get("/slideshow")
-async def get_slideshow_status():
-    return JSONResponse(content=slideshow.get_status())
-
-
-@router.post("/slideshow/queue")
-async def add_to_slideshow_queue(
-    request: Request,
-    name: str = Query(default="image"),
-    auto_start: bool = Query(default=True),
-):
-    binary_data = await request.body()
-    try:
-        canvas = slideshow.decode_image_binary(binary_data)
-    except ValueError as error:
-        return JSONResponse(status_code=400, content={"error": str(error)})
-
-    image = slideshow.add_image(name, canvas)
-    started = False
-    if auto_start and not slideshow.state.running:
-        result = await slideshow.start_slideshow()
-        started = result.get("started", False)
-
-    return JSONResponse(
-        content={
-            "image": {"id": image.id, "name": image.name},
-            "slideshow": slideshow.get_status(),
-            "started": started,
-        }
-    )
-
-
-@router.delete("/slideshow/queue/{image_id}")
-async def remove_from_slideshow_queue(image_id: str):
-    removed = slideshow.remove_image(image_id)
-    if not removed:
-        return JSONResponse(status_code=404, content={"error": "Image not found"})
-    return JSONResponse(content={"slideshow": slideshow.get_status()})
-
-
-@router.post("/slideshow/start")
-async def start_slideshow():
-    result = await slideshow.start_slideshow()
-    status_code = 200 if result.get("started") else 400
-    return JSONResponse(status_code=status_code, content=result | {"slideshow": slideshow.get_status()})
-
-
-@router.post("/slideshow/stop")
-async def stop_slideshow():
-    result = await slideshow.stop_slideshow()
-    return JSONResponse(content=result | {"slideshow": slideshow.get_status()})
-
-
-@router.patch("/slideshow/config")
-async def update_slideshow_config(
-    display_ms: int | None = Query(default=None),
-    transition_ms: int | None = Query(default=None),
-):
-    slideshow.update_config(display_ms=display_ms, transition_ms=transition_ms)
-    return JSONResponse(content={"slideshow": slideshow.get_status()})
