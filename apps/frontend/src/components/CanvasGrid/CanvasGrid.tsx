@@ -5,6 +5,7 @@ import './CanvasGrid.css';
 import { WS_URL } from '../../config';
 import Sidebar from '../Sidebar/Sidebar';
 import { ERASER_COLOR, getBrushPixels, type BrushSize, type DrawingTool } from '../../utils/brush';
+import { shufflePixelOrder } from '../../utils/image';
 
 type Pixel = { r: number; g: number; b: number };
 type PixelUpdate = { x: number; y: number; r: number; g: number; b: number };
@@ -71,6 +72,7 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
     null
   );
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
+  const slideshowTransitionRef = useRef<number | null>(null);
 
   const scheduleRender = useCallback(() => {
     if (renderFrameRef.current !== null) return;
@@ -109,6 +111,58 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
     }
   }, []);
 
+  const cancelSlideshowTransition = useCallback(() => {
+    if (slideshowTransitionRef.current !== null) {
+      cancelAnimationFrame(slideshowTransitionRef.current);
+      slideshowTransitionRef.current = null;
+    }
+  }, []);
+
+  const applySlideshowFrame = useCallback(
+    (
+      pixels: { x: number; y: number; r: number; g: number; b: number }[],
+      transitionMs: number
+    ) => {
+      cancelSlideshowTransition();
+
+      const targetByIndex = pixels.map((pixel) => ({
+        r: pixel.r,
+        g: pixel.g,
+        b: pixel.b,
+      }));
+      const order = shufflePixelOrder(4096);
+      const startTime = performance.now();
+      let appliedProgress = 0;
+
+      const step = (now: number) => {
+        const elapsed = now - startTime;
+        const progress = Math.min(
+          4096,
+          Math.floor((elapsed / transitionMs) * 4096)
+        );
+
+        for (let i = appliedProgress; i < progress; i++) {
+          const pixelIndex = order[i];
+          const y = Math.floor(pixelIndex / 64);
+          const x = pixelIndex % 64;
+          canvasRef.current[y][x] = { ...targetByIndex[pixelIndex] };
+        }
+        appliedProgress = progress;
+
+        scheduleRender();
+
+        if (progress < 4096) {
+          slideshowTransitionRef.current = requestAnimationFrame(step);
+        } else {
+          slideshowTransitionRef.current = null;
+        }
+      };
+
+      slideshowTransitionRef.current = requestAnimationFrame(step);
+    },
+    [cancelSlideshowTransition, scheduleRender]
+  );
+
   const handleWebSocketMessage = useCallback(
     (message: WebSocketMessage) => {
       if (message.type === 'init') {
@@ -126,11 +180,14 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
         applyPixels(message.canvas ?? []);
         scheduleRender();
       } else if (message.type === 'reset') {
+        cancelSlideshowTransition();
         resetCanvas();
         scheduleRender();
+      } else if (message.type === 'slideshow_frame') {
+        applySlideshowFrame(message.canvas, message.transitionMs);
       }
     },
-    [applyPixels, resetCanvas, scheduleRender]
+    [applyPixels, applySlideshowFrame, cancelSlideshowTransition, resetCanvas, scheduleRender]
   );
 
   const { sendBinary } = useWebSocket(WS_URL, {
@@ -166,8 +223,9 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
       if (renderFrameRef.current !== null) {
         cancelAnimationFrame(renderFrameRef.current);
       }
+      cancelSlideshowTransition();
     };
-  }, []);
+  }, [cancelSlideshowTransition]);
 
   useEffect(() => {
     const handleGlobalMouseUp = () => {

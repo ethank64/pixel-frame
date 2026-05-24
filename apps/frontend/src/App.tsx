@@ -5,6 +5,7 @@ import ColorPicker from "./components/ColorPicker/ColorPicker";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useImageUpload } from "./hooks/useImageUpload";
 import { useWebcam } from "./hooks/useWebcam";
+import SlideshowQueue from "./components/SlideshowQueue/SlideshowQueue";
 import "./App.css";
 import { WS_URL, RESET_URL } from "./config";
 
@@ -54,6 +55,9 @@ function App() {
           selectedColor={selectedColor}
           onColorChange={setSelectedColor}
         />
+        <button onClick={handleReset} disabled={!isConnected}>
+          Reset Canvas
+        </button>
       </div>
       <ColorPicker color={selectedColor} onColorChange={setSelectedColor} />
       <div className="webcam-container">
@@ -86,9 +90,7 @@ function App() {
           Upload Image
         </button>
       </div>
-      <button onClick={handleReset} disabled={!isConnected}>
-        Reset Canvas
-      </button>
+      <SlideshowQueue />
     </div>
   );
 }

@@ -50,7 +50,32 @@ const unsigned long WIFI_CONNECT_TIMEOUT_MS = 20000;
 
 WebSocketsClient webSocket;
 
-// Function Headers
+#define SLIDESHOW_FRAME_SIZE (2 + 4 + 4 + 64 * 64 * 5)
+#define SLIDESHOW_MAGIC_0 0xFF
+#define SLIDESHOW_MAGIC_1 0xFD
+#define PIXEL_COUNT (64 * 64)
+
+enum SlideshowState {
+  SLIDESHOW_IDLE,
+  SLIDESHOW_TRANSITIONING,
+  SLIDESHOW_DISPLAYING
+};
+
+uint8_t slideshowTarget[PIXEL_COUNT][3];
+uint16_t slideshowPixelOrder[PIXEL_COUNT];
+uint16_t slideshowTransitionProgress = 0;
+unsigned long slideshowTransitionStartMs = 0;
+unsigned long slideshowDisplayStartMs = 0;
+uint32_t slideshowTransitionMs = 3000;
+uint32_t slideshowDisplayMs = 30000;
+SlideshowState slideshowState = SLIDESHOW_IDLE;
+bool slideshowActive = false;
+unsigned long slideshowLastShowMs = 0;
+
+void shufflePixelOrder();
+void startSlideshowTransition(uint8_t *payload, size_t length);
+void updateSlideshow();
+bool isSlideshowFrame(uint8_t *payload, size_t length);
 /* connectToWifi
  * @brief Connects the board to the local network for Internet access
  */
@@ -96,6 +121,117 @@ void setupGammaTable(float gammaValue);
  */
 uint16_t getGammaCorrectedColor(uint8_t r, uint8_t g, uint8_t b);
 
+bool isSlideshowFrame(uint8_t *payload, size_t length) {
+  return length == SLIDESHOW_FRAME_SIZE &&
+         payload[0] == SLIDESHOW_MAGIC_0 &&
+         payload[1] == SLIDESHOW_MAGIC_1;
+}
+
+void shufflePixelOrder() {
+  for (uint16_t i = 0; i < PIXEL_COUNT; i++) {
+    slideshowPixelOrder[i] = i;
+  }
+
+  for (uint16_t i = PIXEL_COUNT - 1; i > 0; i--) {
+    uint16_t j = random(i + 1);
+    uint16_t temp = slideshowPixelOrder[i];
+    slideshowPixelOrder[i] = slideshowPixelOrder[j];
+    slideshowPixelOrder[j] = temp;
+  }
+}
+
+void startSlideshowTransition(uint8_t *payload, size_t length) {
+  if (!isSlideshowFrame(payload, length)) {
+    return;
+  }
+
+  slideshowTransitionMs = payload[2] |
+                        (payload[3] << 8) |
+                        (payload[4] << 16) |
+                        (payload[5] << 24);
+  slideshowDisplayMs = payload[6] |
+                       (payload[7] << 8) |
+                       (payload[8] << 16) |
+                       (payload[9] << 24);
+
+  if (slideshowTransitionMs < 500) {
+    slideshowTransitionMs = 500;
+  }
+  if (slideshowDisplayMs < 1000) {
+    slideshowDisplayMs = 1000;
+  }
+
+  uint16_t offset = 10;
+  for (uint16_t i = 0; i < PIXEL_COUNT; i++) {
+    slideshowTarget[i][0] = payload[offset + 2];
+    slideshowTarget[i][1] = payload[offset + 3];
+    slideshowTarget[i][2] = payload[offset + 4];
+    offset += 5;
+  }
+
+  shufflePixelOrder();
+  slideshowTransitionProgress = 0;
+  slideshowTransitionStartMs = millis();
+  slideshowState = SLIDESHOW_TRANSITIONING;
+  slideshowActive = true;
+
+  Serial.printf(
+    "Slideshow frame received: transition=%lu ms, display=%lu ms\n",
+    (unsigned long)slideshowTransitionMs,
+    (unsigned long)slideshowDisplayMs
+  );
+}
+
+void updateSlideshow() {
+  if (!slideshowActive || slideshowState == SLIDESHOW_IDLE) {
+    return;
+  }
+
+  if (slideshowState == SLIDESHOW_TRANSITIONING) {
+    unsigned long elapsed = millis() - slideshowTransitionStartMs;
+    uint16_t targetProgress = (uint32_t)elapsed * PIXEL_COUNT / slideshowTransitionMs;
+
+    if (targetProgress > PIXEL_COUNT) {
+      targetProgress = PIXEL_COUNT;
+    }
+
+    bool updated = false;
+    while (slideshowTransitionProgress < targetProgress) {
+      uint16_t pixelIndex = slideshowPixelOrder[slideshowTransitionProgress];
+      uint8_t x = pixelIndex % 64;
+      uint8_t y = pixelIndex / 64;
+      uint16_t color = getGammaCorrectedColor(
+        slideshowTarget[pixelIndex][0],
+        slideshowTarget[pixelIndex][1],
+        slideshowTarget[pixelIndex][2]
+      );
+      matrix.drawPixel(x, y, color);
+      slideshowTransitionProgress++;
+      updated = true;
+    }
+
+    if (updated && millis() - slideshowLastShowMs >= 16) {
+      matrix.show();
+      slideshowLastShowMs = millis();
+    }
+
+    if (slideshowTransitionProgress >= PIXEL_COUNT) {
+      matrix.show();
+      slideshowState = SLIDESHOW_DISPLAYING;
+      slideshowDisplayStartMs = millis();
+      Serial.println("Slideshow transition complete");
+    }
+    return;
+  }
+
+  if (slideshowState == SLIDESHOW_DISPLAYING) {
+    if (millis() - slideshowDisplayStartMs >= slideshowDisplayMs) {
+      slideshowState = SLIDESHOW_IDLE;
+      Serial.println("Slideshow display period complete");
+    }
+  }
+}
+
 void setup(void) {
   Serial.begin(9600);
 
@@ -110,7 +246,8 @@ void setup(void) {
   matrix.setRotation(3);
 
   // Setup gamma correction with a common gamma value like 2.2
-  setupGammaTable(2.2); 
+  setupGammaTable(2.2);
+  randomSeed(analogRead(0));
 
   // Test matrix
   writeText("Testing matrix...");
@@ -148,7 +285,8 @@ void loop() {
     }
     lastDebugTime = millis();
   }
-  
+
+  updateSlideshow();
   webSocket.loop();
 }
 
@@ -355,6 +493,16 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       // Check if message is too large (safety check)
       if (length > 30000) { // Reduced from 50KB to 30KB
         Serial.printf("Message too large (%d bytes), ignoring\n", length);
+        break;
+      }
+
+      if (isSlideshowFrame(payload, length)) {
+        startSlideshowTransition(payload, length);
+        break;
+      }
+
+      if (slideshowActive && slideshowState != SLIDESHOW_IDLE) {
+        Serial.println("Ignoring non-slideshow update during slideshow playback");
         break;
       }
       

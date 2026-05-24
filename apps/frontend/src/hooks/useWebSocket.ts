@@ -1,5 +1,6 @@
 // src/hooks/useWebSocket.tsx
 import { useState, useEffect, useRef } from 'react';
+import { FULL_IMAGE_SIZE, SLIDESHOW_FRAME_SIZE, parseSlideshowFrame } from '../utils/image';
 
 interface PixelUpdate {
   type: 'pixel_update';
@@ -25,6 +26,13 @@ interface ImageUpdateMessage {
   canvas: { x: number; y: number; r: number; g: number; b: number }[];
 }
 
+interface SlideshowFrameMessage {
+  type: 'slideshow_frame';
+  transitionMs: number;
+  displayMs: number;
+  canvas: { x: number; y: number; r: number; g: number; b: number }[];
+}
+
 interface ResetMessage {
   type: 'reset';
 }
@@ -34,13 +42,12 @@ export type WebSocketMessage =
   | InitMessage
   | PixelBatchMessage
   | ImageUpdateMessage
+  | SlideshowFrameMessage
   | ResetMessage;
 
 export interface UseWebSocketOptions {
   onMessage?: (message: WebSocketMessage) => void;
 }
-
-const FULL_IMAGE_SIZE = 2 + 64 * 64 * 5;
 
 // Singleton WebSocket manager
 class WebSocketManager {
@@ -120,6 +127,8 @@ class WebSocketManager {
 
         if (buffer.byteLength === 5) {
           data = this.parseBinaryPixelUpdate(buffer);
+        } else if (buffer.byteLength === SLIDESHOW_FRAME_SIZE) {
+          data = this.parseSlideshowFrame(buffer);
         } else if (buffer.byteLength === FULL_IMAGE_SIZE) {
           data = this.parseBinaryImageUpdate(buffer);
         } else if (!this.receivedInit) {
@@ -191,6 +200,11 @@ class WebSocketManager {
 
   private parseBinaryImageUpdate(buffer: ArrayBuffer): ImageUpdateMessage {
     return { type: 'image_update', canvas: this.parseBinaryPixels(buffer) };
+  }
+
+  private parseSlideshowFrame(buffer: ArrayBuffer): SlideshowFrameMessage {
+    const { transitionMs, displayMs, canvas } = parseSlideshowFrame(buffer);
+    return { type: 'slideshow_frame', transitionMs, displayMs, canvas };
   }
 
   send(data: PixelUpdate) {
