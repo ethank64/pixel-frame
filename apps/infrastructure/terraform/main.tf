@@ -35,6 +35,12 @@ resource "aws_lightsail_instance_public_ports" "backend" {
 
   port_info {
     protocol  = "tcp"
+    from_port = 22
+    to_port   = 22
+  }
+
+  port_info {
+    protocol  = "tcp"
     from_port = var.container_port
     to_port   = var.container_port
   }

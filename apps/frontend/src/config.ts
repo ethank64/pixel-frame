@@ -1,8 +1,8 @@
 const isProd = import.meta.env.PROD;
 
-// Lightsail backend (plain HTTP/WS on port 8000)
-const PRODUCTION_BACKEND_HOST = "52.70.238.148";
-const PRODUCTION_BACKEND_PORT = 8000;
+// Cloudflare Tunnel exposes the Lightsail backend over HTTPS/WSS.
+const PRODUCTION_API_ORIGIN =
+  import.meta.env.VITE_API_ORIGIN ?? "https://pixel-frame-api.ethanknotts.com";
 
 function devOrigin(): string {
   if (typeof window !== "undefined") {
@@ -17,8 +17,8 @@ function toWsOrigin(httpOrigin: string): string {
 }
 
 const devOriginValue = devOrigin();
-const productionApiOrigin = `http://${PRODUCTION_BACKEND_HOST}:${PRODUCTION_BACKEND_PORT}`;
-const productionWsOrigin = `ws://${PRODUCTION_BACKEND_HOST}:${PRODUCTION_BACKEND_PORT}`;
+const productionApiOrigin = PRODUCTION_API_ORIGIN.replace(/\/$/, "");
+const productionWsOrigin = toWsOrigin(productionApiOrigin);
 
 export const WS_URL = isProd
   ? `${productionWsOrigin}/api/ws/canvas`

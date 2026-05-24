@@ -46,30 +46,49 @@ if [[ -z "$PUBLIC_IP" || "$PUBLIC_IP" == "None" ]]; then
   exit 1
 fi
 
+attached_to="$(aws lightsail get-static-ip \
+  --region "$AWS_REGION" \
+  --static-ip-name "$STATIC_IP_NAME" \
+  --query "staticIp.attachedTo" \
+  --output text)"
+if [[ "$attached_to" != "$INSTANCE_NAME" ]]; then
+  echo "Static IP $STATIC_IP_NAME is not attached to $INSTANCE_NAME (attached to: ${attached_to:-none})." >&2
+  echo "Run ensure-static-ip.sh before deploying." >&2
+  exit 1
+fi
+
 get_ssh_key
 
+SSH_OPTS=(
+  -i "$KEY_PATH"
+  -o StrictHostKeyChecking=no
+  -o LogLevel=ERROR
+  -o ConnectTimeout=10
+)
+
 echo "Waiting for Docker on $PUBLIC_IP..."
-for _ in $(seq 1 60); do
-  if ssh \
-    -i "$KEY_PATH" \
-    -o StrictHostKeyChecking=no \
-    -o LogLevel=ERROR \
-    -o ConnectTimeout=10 \
+ready=false
+for _ in $(seq 1 30); do
+  if ssh "${SSH_OPTS[@]}" \
     "ec2-user@$PUBLIC_IP" \
     "test -f /var/lib/pixel-frame-ready && command -v docker" \
     >/dev/null 2>&1; then
+    ready=true
     break
   fi
   sleep 10
 done
 
+if [[ "$ready" != "true" ]]; then
+  echo "Timed out waiting for SSH/Docker on $PUBLIC_IP." >&2
+  echo "Check Lightsail firewall allows TCP 22 and the instance is running." >&2
+  exit 1
+fi
+
 ECR_PASSWORD="$(aws ecr get-login-password --region "$AWS_REGION")"
 
 echo "Deploying $IMAGE_URI to $PUBLIC_IP..."
-ssh \
-  -i "$KEY_PATH" \
-  -o StrictHostKeyChecking=no \
-  -o LogLevel=ERROR \
+ssh "${SSH_OPTS[@]}" \
   "ec2-user@$PUBLIC_IP" \
   "set -euo pipefail
    echo '$ECR_PASSWORD' | sudo docker login --username AWS --password-stdin '$ECR_REGISTRY'
@@ -82,8 +101,19 @@ ssh \
      '$IMAGE_URI'
    curl -sf http://127.0.0.1:${CONTAINER_PORT}/"
 
+if [[ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]]; then
+  echo "Installing cloudflared tunnel..."
+  ssh "${SSH_OPTS[@]}" \
+    "ec2-user@$PUBLIC_IP" \
+    "CLOUDFLARE_TUNNEL_TOKEN='$CLOUDFLARE_TUNNEL_TOKEN' BACKEND_CONTAINER_NAME='$CONTAINER_NAME' bash -s" \
+    < "$SCRIPT_DIR/install-cloudflared.sh"
+fi
+
 echo ""
 echo "Deploy complete."
 echo "  Image:     $IMAGE_URI"
 echo "  Health:    http://${PUBLIC_IP}:${CONTAINER_PORT}/"
 echo "  WebSocket: ws://${PUBLIC_IP}:${CONTAINER_PORT}/api/ws/canvas"
+if [[ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]]; then
+  echo "  Public API: https://pixel-frame-api.ethanknotts.com/"
+fi

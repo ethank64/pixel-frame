@@ -69,7 +69,7 @@ class WebSocketManager {
   }
 
   private scheduleReconnect() {
-    if (!this.shouldReconnect || !this.url || import.meta.env.PROD) {
+    if (!this.shouldReconnect || !this.url) {
       return;
     }
 

@@ -53,6 +53,10 @@ jobs:
           echo "ecr_url=$(terraform output -raw ecr_repository_url)" >> "$GITHUB_OUTPUT"
           echo "public_ip=$(terraform output -raw public_ip)" >> "$GITHUB_OUTPUT"
 
+      # Terraform may replace the instance; reattach static IP before SSH deploy.
+      - name: Ensure static IP attached after Terraform
+        run: bash apps/infrastructure/scripts/ensure-static-ip.sh
+
       - name: Login to Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
@@ -72,6 +76,7 @@ jobs:
           ECR_REPOSITORY_URL: ${{ steps.terraform.outputs.ecr_url }}
           IMAGE_TAG: ${{ github.sha }}
           PUBLIC_IP: ${{ steps.terraform.outputs.public_ip }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
         run: bash apps/infrastructure/scripts/deploy.sh
 
       - name: Verify public health endpoint
@@ -81,3 +86,6 @@ jobs:
           curl -sf "http://${PUBLIC_IP}:8000/"
           echo ""
           echo "Backend live at http://${PUBLIC_IP}:8000/"
+          curl -sf "https://pixel-frame-api.ethanknotts.com/"
+          echo ""
+          echo "Public API live at https://pixel-frame-api.ethanknotts.com/"

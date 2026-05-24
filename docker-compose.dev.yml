@@ -1,9 +1,7 @@
 name: pixel-frame-dev
 
-# TEMP: frontend proxies to deployed Lightsail backend instead of local backend service.
 services:
   backend:
-    profiles: ["local-backend"]
     image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
     working_dir: /app
     volumes:
@@ -26,10 +24,12 @@ services:
       - "5173:5173"
     environment:
       CHOKIDAR_USEPOLLING: "true"
-      VITE_BACKEND_TARGET: http://52.70.238.148:8000
+      VITE_BACKEND_TARGET: http://backend:8000
     command: >
       sh -c "if [ ! -d node_modules/vite ]; then npm ci --ignore-scripts; fi &&
              npm run dev -w frontend -- --host 0.0.0.0 --port 5173"
+    depends_on:
+      - backend
 
 volumes:
   frontend_node_modules:

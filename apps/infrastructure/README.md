@@ -37,6 +37,7 @@ Pushes to `main` that touch `apps/backend/**` or `apps/infrastructure/**` run [`
 |--------|-------------|
 | `AWS_ACCESS_KEY_ID` | IAM access key |
 | `AWS_SECRET_ACCESS_KEY` | IAM secret key |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare tunnel token for `pixel-frame-backend` (enables HTTPS/WSS at `pixel-frame-api.ethanknotts.com`) |
 
 IAM permissions needed: Lightsail (manage instances, static IPs, download SSH key), ECR (push/pull/create repository), S3 (Terraform state bucket).
 
