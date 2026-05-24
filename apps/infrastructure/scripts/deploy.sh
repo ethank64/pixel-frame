@@ -99,6 +99,19 @@ ssh "${SSH_OPTS[@]}" \
      --restart unless-stopped \
      -p ${CONTAINER_PORT}:8000 \
      '$IMAGE_URI'
+   ready=false
+   for _ in \$(seq 1 30); do
+     if curl -sf http://127.0.0.1:${CONTAINER_PORT}/ >/dev/null; then
+       ready=true
+       break
+     fi
+     sleep 2
+   done
+   if [[ \"\$ready\" != \"true\" ]]; then
+     echo 'Container failed health check:' >&2
+     sudo docker logs '$CONTAINER_NAME' 2>&1 | tail -50 >&2 || true
+     exit 1
+   fi
    curl -sf http://127.0.0.1:${CONTAINER_PORT}/"
 
 if [[ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]]; then
