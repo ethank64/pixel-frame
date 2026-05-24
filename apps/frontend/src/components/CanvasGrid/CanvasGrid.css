@@ -18,16 +18,59 @@
 .canvas-container {
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   width: 100%;
   height: 100%;
+}
+
+.canvas-editor {
+  display: flex;
+  flex-direction: row;
+  height: 512px;
+  border: 2px solid #333;
+  border-radius: 8px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.canvas-grid-wrapper {
+  position: relative;
+  width: 512px;
+  height: 512px;
+  flex-shrink: 0;
+}
+
+.brush-preview-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(64, 8px);
+  grid-template-rows: repeat(64, 8px);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.brush-preview-pixel {
+  box-sizing: border-box;
+  border: 1px solid;
+  outline: 1px solid rgba(255, 255, 255, 0.35);
+  outline-offset: -2px;
 }
 
 .test {
   width: 50px;
   height: 512px;
   background-color: red;
+}
+
+.canvas-grid.tool-brush,
+.canvas-grid.tool-eraser {
+  cursor: none;
+}
+
+.canvas-grid.tool-eyedropper {
+  cursor: cell;
 }
 
 .no-border {

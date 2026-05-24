@@ -1,14 +1,12 @@
 // src/components/ColorPicker.tsx
-import { useState } from 'react';
 import './ColorPicker.css';
 
 interface ColorPickerProps {
+  color: { r: number; g: number; b: number };
   onColorChange: (color: { r: number; g: number; b: number }) => void;
 }
 
-function ColorPicker({ onColorChange }: ColorPickerProps) {
-  const [color, setColor] = useState<{ r: number; g: number; b: number }>({ r: 255, g: 0, b: 0 });
-
+function ColorPicker({ color, onColorChange }: ColorPickerProps) {
   const handleGradientClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -40,7 +38,6 @@ function ColorPicker({ onColorChange }: ColorPickerProps) {
       b: Math.floor((b + m) * 255),
     };
 
-    setColor(newColor);
     onColorChange(newColor);
   };
 

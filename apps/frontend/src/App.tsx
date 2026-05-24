@@ -52,9 +52,10 @@ function App() {
       <div className="canvas-container">
         <CanvasGrid
           selectedColor={selectedColor}
+          onColorChange={setSelectedColor}
         />
       </div>
-      <ColorPicker onColorChange={setSelectedColor} />
+      <ColorPicker color={selectedColor} onColorChange={setSelectedColor} />
       <div className="webcam-container">
         <video ref={videoRef} style={{ width: '320px', height: '240px' }} />
         <canvas ref={canvasRef} style={{ display: 'none' }} />
