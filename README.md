@@ -21,7 +21,9 @@ This project uses a monorepo with pnpm. Inside of the apps folder, there are 3 m
 
 * **Backend:**
   ```bash
-  python main.py
+  cd apps/backend
+  uv sync
+  uv run python main.py
   ```
 
 * **Frontend:**

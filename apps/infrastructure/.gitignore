@@ -1,0 +1,6 @@
+config.env
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+*.pem

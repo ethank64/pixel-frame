@@ -3,126 +3,134 @@ import json
 import asyncio
 import struct
 
-# Store the canvas as a 2D array in a local JSON file
-canvas = [[(0, 0, 0) for _ in range(64)] for _ in range(64)]  # Default black
-FILE_PATH = "canvas_state.json"
+# In-memory canvas state (resets on server restart)
+canvas = [[(0, 0, 0) for _ in range(64)] for _ in range(64)]
 
-def load_canvas():
-    """Load the canvas state from the local file, if it exists."""
-    global canvas
-    try:
-        with open(FILE_PATH, 'r') as f:
-            loaded = json.load(f)
-            if len(loaded) == 64 and all(len(row) == 64 for row in loaded):
-                canvas = loaded
-    except (FileNotFoundError, json.JSONDecodeError, ValueError):
-        pass
+FULL_IMAGE_SIZE = 2 + 64 * 64 * 5
 
-def save_canvas():
-    """Save the current canvas state to the local file."""
-    with open(FILE_PATH, 'w') as f:
-        json.dump(canvas, f)
-
-load_canvas()
 
 async def get_canvas():
     """Return the current canvas state."""
     return canvas
 
-def update_pixel(x: int, y: int, r: int, g: int, b: int):
-    """Update a single pixel's RGB color in the canvas and save to file."""
-    if (0 <= x <= 63 and 0 <= y <= 63 and 
-        0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
-        canvas[y][x] = (r, g, b)
-        save_canvas()
 
-async def broadcast_canvas_update(x: int, y: int, r: int, g: int, b: int):
-    """Broadcast a pixel update to all connected WebSocket clients."""
+def update_pixel(x: int, y: int, r: int, g: int, b: int):
+    """Update a single pixel's RGB color in the in-memory canvas."""
+    if (
+        0 <= x <= 63
+        and 0 <= y <= 63
+        and 0 <= r <= 255
+        and 0 <= g <= 255
+        and 0 <= b <= 255
+    ):
+        canvas[y][x] = (r, g, b)
+
+
+def _clients_excluding_sender(sender_websocket):
     from .routes import connected_clients
-    # Send binary data: 5 bytes for x, y, r, g, b
-    binary_data = struct.pack('BBBBB', x, y, r, g, b)
-    for client in connected_clients:
-        try:
-            await client.send_bytes(binary_data)
-        except Exception as e:
-            print(f"Failed to send to client: {e}")
+
+    if sender_websocket is None:
+        return list(connected_clients)
+    return [client for client in connected_clients if client != sender_websocket]
+
+
+async def _broadcast_bytes(binary_data: bytes, sender_websocket=None):
+    clients = _clients_excluding_sender(sender_websocket)
+    if not clients:
+        return
+
+    await asyncio.gather(
+        *(client.send_bytes(binary_data) for client in clients),
+        return_exceptions=True,
+    )
+
+
+async def broadcast_canvas_update(
+    x: int, y: int, r: int, g: int, b: int, sender_websocket=None
+):
+    """Broadcast a single pixel update to all connected clients except the sender."""
+    binary_data = struct.pack("BBBBB", x, y, r, g, b)
+    await _broadcast_bytes(binary_data, sender_websocket)
+
+
+async def handle_binary_pixel_batch(binary_data: bytes, sender_websocket):
+    """
+    Handle batched pixel updates from clients.
+    Format: [count][x][y][r][g][b] for each pixel.
+    """
+    try:
+        pixel_count = struct.unpack("H", binary_data[:2])[0]
+        expected_size = 2 + pixel_count * 5
+        if len(binary_data) != expected_size:
+            print(f"Invalid pixel batch size: {len(binary_data)} != {expected_size}")
+            return
+
+        for i in range(pixel_count):
+            offset = 2 + (i * 5)
+            x, y, r, g, b = struct.unpack("BBBBB", binary_data[offset : offset + 5])
+            update_pixel(x, y, r, g, b)
+
+        await _broadcast_bytes(binary_data, sender_websocket)
+    except Exception as e:
+        print(f"Error handling binary pixel batch: {e}")
+
 
 async def handle_binary_image_update(binary_data: bytes, sender_websocket):
     """
     Handle binary image updates from clients.
     Format: [count][x][y][r][g][b] for each pixel (including black pixels)
     """
-    
     try:
-        # First 2 bytes are the pixel count
-        pixel_count = struct.unpack('H', binary_data[:2])[0]
+        pixel_count = struct.unpack("H", binary_data[:2])[0]
         print(f"Received binary image update with {pixel_count} pixels")
-        
-        # Broadcast immediately to reduce latency
-        print(f"Broadcasting image update immediately")
-        broadcast_task = asyncio.create_task(broadcast_image_update(binary_data, sender_websocket))
-        
-        # Update the canvas with all pixels (in parallel with broadcast)
-        print(f"Updating canvas with {pixel_count} pixels")
+
+        broadcast_task = asyncio.create_task(
+            broadcast_image_update(binary_data, sender_websocket)
+        )
         await update_canvas_bulk(binary_data, pixel_count)
-        
-        # Wait for broadcast to complete
         await broadcast_task
-        print(f"Finished processing image update")
-        
+        print("Finished processing image update")
     except Exception as e:
         print(f"Error handling binary image update: {e}")
 
+
 async def broadcast_image_update(binary_data: bytes, sender_websocket):
-    """Broadcast a full image update to all connected WebSocket clients except the sender."""
-    from .routes import connected_clients
-    print(f"Broadcasting image update to {len(connected_clients)} clients")
-    
-    clients_to_notify = [client for client in connected_clients if client != sender_websocket]
-    print(f"Will notify {len(clients_to_notify)} other clients")
-    
-    if not clients_to_notify:
-        print("No other clients to notify")
-        return
-    
-    for client in clients_to_notify:
-        try:
-            await client.send_bytes(binary_data)
-            print(f"Successfully sent image update to client")
-        except Exception as e:
-            print(f"Failed to send image update to client: {e}")
+    """Broadcast a full image update to all connected clients except the sender."""
+    await _broadcast_bytes(binary_data, sender_websocket)
+
 
 async def update_canvas_bulk(binary_data: bytes, pixel_count: int):
-    """Update the canvas with all pixels from binary data more efficiently."""
+    """Update the canvas with all pixels from binary data."""
     global canvas
-    
-    # Create a new canvas array
+
     new_canvas = [[(0, 0, 0) for _ in range(64)] for _ in range(64)]
-    
-    # Process all pixels at once
+
     for i in range(pixel_count):
         offset = 2 + (i * 5)
-        x, y, r, g, b = struct.unpack('BBBBB', binary_data[offset:offset+5])
-        if (0 <= x <= 63 and 0 <= y <= 63 and 
-            0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
+        x, y, r, g, b = struct.unpack("BBBBB", binary_data[offset : offset + 5])
+        if (
+            0 <= x <= 63
+            and 0 <= y <= 63
+            and 0 <= r <= 255
+            and 0 <= g <= 255
+            and 0 <= b <= 255
+        ):
             new_canvas[y][x] = (r, g, b)
-    
-    # Update the global canvas in one operation
+
     canvas = new_canvas
-    save_canvas()
+
 
 async def reset_canvas():
     global canvas
     canvas = [[(0, 0, 0) for _ in range(64)] for _ in range(64)]
-    save_canvas()
+
 
 async def broadcast_reset():
     """Broadcast a reset message to all connected WebSocket clients."""
     from .routes import connected_clients
+
     reset_message = json.dumps({"type": "reset"})
-    
-    for client in connected_clients:
-        try:
-            await client.send_text(reset_message)
-        except Exception as e:
-            print(f"Failed to send to client: {e}")
+    await asyncio.gather(
+        *(client.send_text(reset_message) for client in connected_clients),
+        return_exceptions=True,
+    )

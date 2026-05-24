@@ -1,7 +1,7 @@
 /* ----------------------------------------------------------------------
 Sketch to connect a 64x64 RGB matrix to a WebSocket server and display pixel updates.
 Designed for MatrixPortal ESP32-S3.
-Make sure to set up a secrets.h file with the correct credentials for your network.
+Make sure to set up a secrets.h file with Wi-Fi and WebSocket credentials.
 ------------------------------------------------------------------------- */
 
 #include <Adafruit_Protomatter.h>
@@ -32,18 +32,21 @@ Adafruit_Protomatter matrix(
 // A simple gamma correction lookup table
 uint8_t gamma8[256];
 
-// I have different networks saved for different locations I'm at
-const char* network = "columbus";
+struct KnownNetwork {
+  const char* ssid;
+  const char* password;
+  const char* username;  // null for PSK networks
+  bool enterprise;
+};
 
-// Set later on depending on network
-char* ssid;
-char* wifi_username;
-char* wifi_password;
+const KnownNetwork knownNetworks[] = {
+  { COLUMBUS_SSID, COLUMBUS_PASSWORD, nullptr, false },
+  { HOME_SSID, HOME_PASSWORD, nullptr, false },
+  { OU_SSID, OU_PASSWORD, OU_USERNAME, true },
+};
 
-// Public IP of my EC2 instance for the backend
-const char* ws_host = "3.21.104.21";
-const uint16_t ws_port = 8000;
-const char* ws_path = "/api/ws/canvas";
+const size_t NUM_KNOWN_NETWORKS = sizeof(knownNetworks) / sizeof(knownNetworks[0]);
+const unsigned long WIFI_CONNECT_TIMEOUT_MS = 20000;
 
 WebSocketsClient webSocket;
 
@@ -117,7 +120,7 @@ void setup(void) {
 
   // Initialize WebSocket with more conservative settings
   Serial.println("Attempting WebSocket connection...");
-  webSocket.begin(ws_host, ws_port, ws_path);
+  webSocket.begin(WS_HOST, WS_PORT, WS_PATH);
   webSocket.onEvent(webSocketEvent);
 
   Serial.print("Maximum websocket input size: ");
@@ -150,41 +153,34 @@ void loop() {
 }
 
 // Function definitions
-void connectToWiFi() {
-  if (network == "columbus") {
-    ssid = COLUMBUS_SSID;
-    wifi_password = COLUMBUS_PASSWORD;
-  } else if (network == "ou") {
-    ssid = OU_SSID;
-    wifi_username = OU_USERNAME;
-    wifi_password = OU_PASSWORD;
-  } else if (network == "home") {
-    ssid = HOME_SSID;
-    wifi_password = HOME_PASSWORD;
-  }
+bool tryConnectNetwork(const KnownNetwork& network) {
+  WiFi.disconnect(true);
+  delay(100);
 
-  Serial.print("Connecting to Wi-Fi: ");
+  Serial.print("Connecting to ");
+  Serial.println(network.ssid);
   writeText("Connecting to WiFi...");
-  Serial.println(ssid);
 
-  if (network == "ou") {
-    WiFi.begin(ssid, WPA2_AUTH_PEAP, wifi_username, wifi_username, wifi_password);
-  } else if (network == "columbus") {
-    WiFi.begin(ssid, wifi_password);
+  if (network.enterprise) {
+    WiFi.begin(network.ssid, WPA2_AUTH_PEAP, network.username, network.username, network.password);
+  } else {
+    WiFi.begin(network.ssid, network.password);
   }
-  
-  while (WiFi.status() != WL_CONNECTED) {
+
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
     delay(500);
     Serial.print(".");
-    if (WiFi.status() == WL_NO_SSID_AVAIL) {
-      Serial.println("SSID not found");
-      writeText("SSID not found");
-      err(500);
-    } else if (WiFi.status() == WL_CONNECT_FAILED) {
-      Serial.println("Connection failed (check credentials)");
-      writeText("Connection Failed");
-      err(500);
+    wl_status_t status = WiFi.status();
+    if (status == WL_NO_SSID_AVAIL || status == WL_CONNECT_FAILED) {
+      Serial.println(" failed");
+      return false;
     }
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println(" timed out");
+    return false;
   }
 
   Serial.println("\nWi-Fi connected");
@@ -193,6 +189,81 @@ void connectToWiFi() {
   writeText("Connected!");
   delay(2000);
   matrix.fillScreen(0);
+  return true;
+}
+
+int findKnownNetworkIndex(const char* ssid) {
+  for (size_t i = 0; i < NUM_KNOWN_NETWORKS; i++) {
+    if (strcmp(ssid, knownNetworks[i].ssid) == 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+void connectToWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true);
+  delay(100);
+
+  writeText("Scanning WiFi...");
+  Serial.println("Scanning for known networks...");
+  int networkCount = WiFi.scanNetworks();
+  if (networkCount <= 0) {
+    Serial.println("No networks found");
+    writeText("No WiFi found");
+    err(500);
+  }
+
+  bool tried[NUM_KNOWN_NETWORKS] = { false };
+  int matchesFound = 0;
+
+  for (int i = 0; i < networkCount; i++) {
+    if (findKnownNetworkIndex(WiFi.SSID(i).c_str()) >= 0) {
+      matchesFound++;
+    }
+  }
+
+  if (matchesFound == 0) {
+    Serial.println("No known networks in range");
+    writeText("Unknown WiFi");
+    err(500);
+  }
+
+  for (int attempt = 0; attempt < matchesFound; attempt++) {
+    int bestKnown = -1;
+    int bestRssi = -999;
+
+    for (int i = 0; i < networkCount; i++) {
+      int knownIndex = findKnownNetworkIndex(WiFi.SSID(i).c_str());
+      if (knownIndex < 0 || tried[knownIndex]) {
+        continue;
+      }
+      if (WiFi.RSSI(i) > bestRssi) {
+        bestRssi = WiFi.RSSI(i);
+        bestKnown = knownIndex;
+      }
+    }
+
+    if (bestKnown < 0) {
+      break;
+    }
+
+    tried[bestKnown] = true;
+    Serial.printf(
+      "Found known network %s (RSSI %d dBm)\n",
+      knownNetworks[bestKnown].ssid,
+      bestRssi
+    );
+
+    if (tryConnectNetwork(knownNetworks[bestKnown])) {
+      return;
+    }
+  }
+
+  Serial.println("All known networks failed");
+  writeText("Connection Failed");
+  err(500);
 }
 
 void writeText(char* message) {

@@ -1,0 +1,47 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/backend/**"
+      - "apps/infrastructure/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CONFIG_PATH: apps/infrastructure/config.example.env
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Provision Lightsail infrastructure
+        run: bash apps/infrastructure/scripts/provision.sh
+
+      - name: Build and deploy backend container
+        run: bash apps/infrastructure/scripts/deploy.sh
+
+      - name: Verify public health endpoint
+        run: |
+          PUBLIC_IP="$(aws lightsail get-static-ip \
+            --static-ip-name pixel-frame-backend-ip \
+            --region us-east-1 \
+            --query 'staticIp.ipAddress' \
+            --output text)"
+          curl -sf "http://${PUBLIC_IP}:8000/"
+          echo ""
+          echo "Backend live at http://${PUBLIC_IP}:8000/"

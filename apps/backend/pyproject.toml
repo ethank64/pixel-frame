@@ -1,0 +1,13 @@
+[project]
+name = "pixel-frame-backend"
+version = "0.1.0"
+description = "Pixel Frame WebSocket backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.8",
+    "uvicorn==0.34.0",
+    "websockets==15.0",
+]
+
+[tool.uv]
+package = false

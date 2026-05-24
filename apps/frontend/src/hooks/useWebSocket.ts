@@ -1,5 +1,5 @@
 // src/hooks/useWebSocket.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface PixelUpdate {
   type: 'pixel_update';
@@ -15,6 +15,11 @@ interface InitMessage {
   canvas: { x: number; y: number; r: number; g: number; b: number }[];
 }
 
+interface PixelBatchMessage {
+  type: 'pixel_batch';
+  canvas: { x: number; y: number; r: number; g: number; b: number }[];
+}
+
 interface ImageUpdateMessage {
   type: 'image_update';
   canvas: { x: number; y: number; r: number; g: number; b: number }[];
@@ -24,7 +29,18 @@ interface ResetMessage {
   type: 'reset';
 }
 
-type WebSocketMessage = PixelUpdate | InitMessage | ImageUpdateMessage | ResetMessage;
+export type WebSocketMessage =
+  | PixelUpdate
+  | InitMessage
+  | PixelBatchMessage
+  | ImageUpdateMessage
+  | ResetMessage;
+
+export interface UseWebSocketOptions {
+  onMessage?: (message: WebSocketMessage) => void;
+}
+
+const FULL_IMAGE_SIZE = 2 + 64 * 64 * 5;
 
 // Singleton WebSocket manager
 class WebSocketManager {
@@ -34,6 +50,9 @@ class WebSocketManager {
   private listeners: Set<(message: WebSocketMessage) => void> = new Set();
   private connectionState: boolean = false;
   private connectionStateListeners: Set<(connected: boolean) => void> = new Set();
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private shouldReconnect = true;
+  private receivedInit = false;
 
   static getInstance(): WebSocketManager {
     if (!WebSocketManager.instance) {
@@ -42,16 +61,48 @@ class WebSocketManager {
     return WebSocketManager.instance;
   }
 
+  private clearReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private scheduleReconnect() {
+    if (!this.shouldReconnect || !this.url || import.meta.env.PROD) {
+      return;
+    }
+
+    this.clearReconnectTimer();
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.openConnection(this.url);
+    }, 2000);
+  }
+
   connect(url: string) {
-    if (this.ws && this.url === url) {
-      return; // Already connected to this URL
+    this.shouldReconnect = true;
+    this.clearReconnectTimer();
+
+    if (
+      this.ws &&
+      this.url === url &&
+      (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
     }
 
     if (this.ws) {
       this.ws.close();
+      this.ws = null;
     }
 
     this.url = url;
+    this.openConnection(url);
+  }
+
+  private openConnection(url: string) {
+    this.receivedInit = false;
     this.ws = new WebSocket(url);
     this.ws.binaryType = 'arraybuffer';
 
@@ -63,27 +114,25 @@ class WebSocketManager {
 
     this.ws.onmessage = (event) => {
       let data: WebSocketMessage;
-      
+
       if (event.data instanceof ArrayBuffer) {
         const buffer = event.data as ArrayBuffer;
-        
+
         if (buffer.byteLength === 5) {
-          // Single pixel update: 5 bytes for x, y, r, g, b
           data = this.parseBinaryPixelUpdate(buffer);
-        } else if (buffer.byteLength === 2 + 64 * 64 * 5) {
-          // Full image update: count + all 64x64 pixels
+        } else if (buffer.byteLength === FULL_IMAGE_SIZE) {
           data = this.parseBinaryImageUpdate(buffer);
-        } else {
-          // Initial canvas state: count + non-black pixel data
+        } else if (!this.receivedInit) {
+          this.receivedInit = true;
           data = this.parseBinaryCanvasData(buffer);
+        } else {
+          data = this.parseBinaryPixelBatch(buffer);
         }
       } else {
-        // Handle JSON data for other messages
         data = JSON.parse(event.data);
       }
-      
-      console.log("message", data);
-      this.listeners.forEach(listener => listener(data));
+
+      this.listeners.forEach((listener) => listener(data));
     };
 
     this.ws.onerror = (error) => {
@@ -97,60 +146,51 @@ class WebSocketManager {
       this.connectionState = false;
       this.notifyConnectionState(false);
       this.ws = null;
+      this.scheduleReconnect();
     };
   }
 
-  private parseBinaryCanvasData(buffer: ArrayBuffer): InitMessage {
+  private parseBinaryPixels(buffer: ArrayBuffer) {
     const view = new DataView(buffer);
-    const pixelCount = view.getUint16(0, true); // Little-endian 2-byte count
-    
+    const pixelCount = view.getUint16(0, true);
     const canvas: { x: number; y: number; r: number; g: number; b: number }[] = [];
-    
-    // Each pixel is 5 bytes: x, y, r, g, b
+
     for (let i = 0; i < pixelCount; i++) {
-      const offset = 2 + (i * 5); // Start after the 2-byte count
-      const x = view.getUint8(offset);
-      const y = view.getUint8(offset + 1);
-      const r = view.getUint8(offset + 2);
-      const g = view.getUint8(offset + 3);
-      const b = view.getUint8(offset + 4);
-      
-      canvas.push({ x, y, r, g, b });
+      const offset = 2 + i * 5;
+      canvas.push({
+        x: view.getUint8(offset),
+        y: view.getUint8(offset + 1),
+        r: view.getUint8(offset + 2),
+        g: view.getUint8(offset + 3),
+        b: view.getUint8(offset + 4),
+      });
     }
-    
-    return { type: 'init', canvas };
+
+    return canvas;
+  }
+
+  private parseBinaryCanvasData(buffer: ArrayBuffer): InitMessage {
+    return { type: 'init', canvas: this.parseBinaryPixels(buffer) };
+  }
+
+  private parseBinaryPixelBatch(buffer: ArrayBuffer): PixelBatchMessage {
+    return { type: 'pixel_batch', canvas: this.parseBinaryPixels(buffer) };
   }
 
   private parseBinaryPixelUpdate(buffer: ArrayBuffer): PixelUpdate {
     const view = new DataView(buffer);
-    const x = view.getUint8(0);
-    const y = view.getUint8(1);
-    const r = view.getUint8(2);
-    const g = view.getUint8(3);
-    const b = view.getUint8(4);
-    
-    return { type: 'pixel_update', x, y, r, g, b };
+    return {
+      type: 'pixel_update',
+      x: view.getUint8(0),
+      y: view.getUint8(1),
+      r: view.getUint8(2),
+      g: view.getUint8(3),
+      b: view.getUint8(4),
+    };
   }
 
   private parseBinaryImageUpdate(buffer: ArrayBuffer): ImageUpdateMessage {
-    const view = new DataView(buffer);
-    const pixelCount = view.getUint16(0, true); // Little-endian 2-byte count
-    
-    const canvas: { x: number; y: number; r: number; g: number; b: number }[] = [];
-    
-    // Each pixel is 5 bytes: x, y, r, g, b
-    for (let i = 0; i < pixelCount; i++) {
-      const offset = 2 + (i * 5); // Start after the 2-byte count
-      const x = view.getUint8(offset);
-      const y = view.getUint8(offset + 1);
-      const r = view.getUint8(offset + 2);
-      const g = view.getUint8(offset + 3);
-      const b = view.getUint8(offset + 4);
-      
-      canvas.push({ x, y, r, g, b });
-    }
-    
-    return { type: 'image_update', canvas };
+    return { type: 'image_update', canvas: this.parseBinaryPixels(buffer) };
   }
 
   send(data: PixelUpdate) {
@@ -179,7 +219,6 @@ class WebSocketManager {
 
   addConnectionStateListener(listener: (connected: boolean) => void) {
     this.connectionStateListeners.add(listener);
-    // Immediately notify with current state
     listener(this.connectionState);
   }
 
@@ -188,7 +227,7 @@ class WebSocketManager {
   }
 
   private notifyConnectionState(connected: boolean) {
-    this.connectionStateListeners.forEach(listener => listener(connected));
+    this.connectionStateListeners.forEach((listener) => listener(connected));
   }
 
   isConnected(): boolean {
@@ -196,50 +235,56 @@ class WebSocketManager {
   }
 
   disconnect() {
+    this.shouldReconnect = false;
+    this.clearReconnectTimer();
     if (this.ws) {
       this.ws.close();
     }
   }
 }
 
-export function useWebSocket(url: string) {
+export function useWebSocket(url: string, options?: UseWebSocketOptions) {
   const [messages, setMessages] = useState<WebSocketMessage[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const onMessageRef = useRef(options?.onMessage);
 
-  // Whenever the URL changes, we need to reconnect to the new WebSocket
+  useEffect(() => {
+    onMessageRef.current = options?.onMessage;
+  }, [options?.onMessage]);
+
   useEffect(() => {
     const manager = WebSocketManager.getInstance();
-    
-    // Connect to the WebSocket
+    const useMessageState = !options?.onMessage;
+
     manager.connect(url);
 
-    // Set up message listener
     const messageListener = (data: WebSocketMessage) => {
-      setMessages((prev) => [...prev, data]);
+      if (onMessageRef.current) {
+        onMessageRef.current(data);
+      }
+      if (useMessageState) {
+        setMessages((prev) => [...prev, data]);
+      }
     };
     manager.addMessageListener(messageListener);
 
-    // Set up connection state listener
     const connectionListener = (connected: boolean) => {
       setIsConnected(connected);
     };
     manager.addConnectionStateListener(connectionListener);
 
-    // Cleanup
     return () => {
       manager.removeMessageListener(messageListener);
       manager.removeConnectionStateListener(connectionListener);
     };
-  }, [url]);
+  }, [url, options?.onMessage]);
 
   const send = (data: PixelUpdate) => {
-    const manager = WebSocketManager.getInstance();
-    manager.send(data);
+    WebSocketManager.getInstance().send(data);
   };
 
   const sendBinary = (data: ArrayBuffer) => {
-    const manager = WebSocketManager.getInstance();
-    manager.sendBinary(data);
+    WebSocketManager.getInstance().sendBinary(data);
   };
 
   return { messages, send, sendBinary, isConnected };
