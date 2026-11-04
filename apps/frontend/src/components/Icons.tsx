@@ -61,13 +61,6 @@ export const TrashIcon = () => (
   </Icon>
 );
 
-export const LinkIcon = () => (
-  <Icon size={16}>
-    <path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1" />
-    <path d="M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1" />
-  </Icon>
-);
-
 export function LogoMark() {
   return (
     <svg width="22" height="22" viewBox="0 0 6 6" shapeRendering="crispEdges" aria-hidden="true">

@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import CanvasGrid from "./components/CanvasGrid/CanvasGrid";
 import Dock from "./components/Dock/Dock";
-import { LinkIcon, LogoMark } from "./components/Icons";
+import { LogoMark } from "./components/Icons";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useImageUpload } from "./hooks/useImageUpload";
 import { useWebcam } from "./hooks/useWebcam";
@@ -21,7 +21,6 @@ function App() {
   const [recentColors, setRecentColors] = useState<RGB[]>([]);
   const [activeTool, setActiveTool] = useState<DrawingTool>("brush");
   const [brushSize, setBrushSize] = useState<BrushSize>(1);
-  const [linkCopied, setLinkCopied] = useState(false);
 
   // Remember colors that were actually drawn with, newest first
   const rememberColor = useCallback((color: RGB) => {
@@ -51,16 +50,6 @@ function App() {
     }
   };
 
-  const handleShare = async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
-    } catch (error) {
-      console.error("Could not copy link:", error);
-    }
-  };
-
   return (
     <div className="app">
       <header className="app-header">
@@ -68,28 +57,10 @@ function App() {
           <LogoMark />
           <h1>Pixel Frame</h1>
         </div>
-        <div className="header-actions">
-          <span className={`status ${isConnected ? "online" : "offline"}`} role="status">
-            <span className="status-dot" aria-hidden="true" />
-            {isConnected ? (
-              <>
-                <span className="status-long">Live on the frame</span>
-                <span className="status-short">Live</span>
-              </>
-            ) : (
-              "Reconnecting…"
-            )}
-          </span>
-          <button
-            type="button"
-            className="share-button"
-            onClick={handleShare}
-            aria-label={linkCopied ? "Link copied" : "Copy invite link"}
-          >
-            <LinkIcon />
-            <span className="share-label">{linkCopied ? "Link copied" : "Invite friends"}</span>
-          </button>
-        </div>
+        <span className={`status ${isConnected ? "online" : "offline"}`} role="status">
+          <span className="status-dot" aria-hidden="true" />
+          {isConnected ? "Live" : "Reconnecting…"}
+        </span>
       </header>
 
       <main className="stage">
