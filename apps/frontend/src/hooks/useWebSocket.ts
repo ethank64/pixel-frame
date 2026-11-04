@@ -29,12 +29,20 @@ interface ResetMessage {
   type: 'reset';
 }
 
+export interface LiveStatusMessage {
+  type: 'live_status';
+  active: boolean;
+  you: boolean;
+  seconds_left: number;
+}
+
 export type WebSocketMessage =
   | PixelUpdate
   | InitMessage
   | PixelBatchMessage
   | ImageUpdateMessage
-  | ResetMessage;
+  | ResetMessage
+  | LiveStatusMessage;
 
 export interface UseWebSocketOptions {
   onMessage?: (message: WebSocketMessage) => void;
@@ -209,6 +217,17 @@ class WebSocketManager {
     }
   }
 
+  sendJson(data: object) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(data));
+    }
+  }
+
+  // Bytes queued but not yet sent; lets streaming skip frames on a slow connection
+  bufferedAmount(): number {
+    return this.ws?.bufferedAmount ?? 0;
+  }
+
   addMessageListener(listener: (message: WebSocketMessage) => void) {
     this.listeners.add(listener);
   }
@@ -243,8 +262,13 @@ class WebSocketManager {
   }
 }
 
+// Stable senders, so hooks can list them as dependencies without re-running every render
+const send = (data: PixelUpdate) => WebSocketManager.getInstance().send(data);
+const sendBinary = (data: ArrayBuffer) => WebSocketManager.getInstance().sendBinary(data);
+const sendJson = (data: object) => WebSocketManager.getInstance().sendJson(data);
+const bufferedAmount = () => WebSocketManager.getInstance().bufferedAmount();
+
 export function useWebSocket(url: string, options?: UseWebSocketOptions) {
-  const [messages, setMessages] = useState<WebSocketMessage[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const onMessageRef = useRef(options?.onMessage);
 
@@ -254,17 +278,11 @@ export function useWebSocket(url: string, options?: UseWebSocketOptions) {
 
   useEffect(() => {
     const manager = WebSocketManager.getInstance();
-    const useMessageState = !options?.onMessage;
 
     manager.connect(url);
 
     const messageListener = (data: WebSocketMessage) => {
-      if (onMessageRef.current) {
-        onMessageRef.current(data);
-      }
-      if (useMessageState) {
-        setMessages((prev) => [...prev, data]);
-      }
+      onMessageRef.current?.(data);
     };
     manager.addMessageListener(messageListener);
 
@@ -277,15 +295,7 @@ export function useWebSocket(url: string, options?: UseWebSocketOptions) {
       manager.removeMessageListener(messageListener);
       manager.removeConnectionStateListener(connectionListener);
     };
-  }, [url, options?.onMessage]);
+  }, [url]);
 
-  const send = (data: PixelUpdate) => {
-    WebSocketManager.getInstance().send(data);
-  };
-
-  const sendBinary = (data: ArrayBuffer) => {
-    WebSocketManager.getInstance().sendBinary(data);
-  };
-
-  return { messages, send, sendBinary, isConnected };
+  return { send, sendBinary, sendJson, bufferedAmount, isConnected };
 }

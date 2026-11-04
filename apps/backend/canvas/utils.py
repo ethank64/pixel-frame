@@ -26,12 +26,25 @@ def update_pixel(x: int, y: int, r: int, g: int, b: int):
         canvas[y][x] = (r, g, b)
 
 
+def encode_full_canvas() -> bytes:
+    """Encode the whole canvas as a full image update: [count][x][y][r][g][b] for every pixel."""
+    data = bytearray(struct.pack("<H", 64 * 64))
+    for y in range(64):
+        for x in range(64):
+            r, g, b = canvas[y][x]
+            data += struct.pack("BBBBB", x, y, r, g, b)
+    return bytes(data)
+
+
 def _clients_excluding_sender(sender_websocket):
     from .routes import connected_clients
+    from . import live
 
-    if sender_websocket is None:
-        return list(connected_clients)
-    return [client for client in connected_clients if client != sender_websocket]
+    clients = [client for client in connected_clients if client != sender_websocket]
+    # While someone is streaming, the frame shows their camera; it gets the canvas back when they stop
+    if live.is_live():
+        clients = [client for client in clients if client not in live.frame_clients]
+    return clients
 
 
 async def _broadcast_bytes(binary_data: bytes, sender_websocket=None):
@@ -127,10 +140,8 @@ async def reset_canvas():
 
 async def broadcast_reset():
     """Broadcast a reset message to all connected WebSocket clients."""
-    from .routes import connected_clients
-
     reset_message = json.dumps({"type": "reset"})
     await asyncio.gather(
-        *(client.send_text(reset_message) for client in connected_clients),
+        *(client.send_text(reset_message) for client in _clients_excluding_sender(None)),
         return_exceptions=True,
     )

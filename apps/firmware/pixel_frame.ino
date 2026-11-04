@@ -54,6 +54,9 @@ const unsigned long WIFI_CONNECT_TIMEOUT_MS = 20000;
 WebSocketsClient webSocket;
 static bool receivedCanvasInit = false;
 
+// "LV" header + 64x64 pixels at 2 bytes each
+const size_t LIVE_FRAME_SIZE = 2 + WIDTH * HEIGHT * 2;
+
 // Function Headers
 /* connectToWifi
  * @brief Connects the board to the local network for Internet access
@@ -99,6 +102,13 @@ void setupGammaTable(float gammaValue);
  * @return A 16-bit color value (RGB565) with gamma correction applied.
  */
 uint16_t getGammaCorrectedColor(uint8_t r, uint8_t g, uint8_t b);
+
+/*
+ * drawLiveFrame
+ * @param pixels 64x64 RGB565 pixels, little-endian, row by row
+ * @brief Draws one live webcam frame with gamma correction
+ */
+void drawLiveFrame(const uint8_t* pixels);
 
 void setup(void) {
   Serial.begin(9600);
@@ -356,6 +366,13 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       break;
     }
     case WStype_BIN: {
+      // Live webcam frame: "LV" + 64x64 RGB565 pixels (little-endian, row by row).
+      // Drawn over the canvas until the server sends the canvas back.
+      if (length == LIVE_FRAME_SIZE && payload[0] == 'L' && payload[1] == 'V') {
+        drawLiveFrame(payload + 2);
+        break;
+      }
+
       Serial.printf("Received binary message, length: %d bytes\n", length);
       Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
       
@@ -486,4 +503,26 @@ void setupGammaTable(float gammaValue) {
 
 uint16_t getGammaCorrectedColor(uint8_t r, uint8_t g, uint8_t b) {
   return matrix.color565(gamma8[r], gamma8[g], gamma8[b]);
+}
+
+void drawLiveFrame(const uint8_t* pixels) {
+  for (int i = 0; i < WIDTH * HEIGHT; i++) {
+    uint16_t value = pixels[i * 2] | (pixels[i * 2 + 1] << 8);
+
+    // Expand 5/6/5-bit channels back to 8 bits so the gamma table applies
+    uint8_t r5 = (value >> 11) & 0x1F;
+    uint8_t g6 = (value >> 5) & 0x3F;
+    uint8_t b5 = value & 0x1F;
+    uint8_t r = (r5 << 3) | (r5 >> 2);
+    uint8_t g = (g6 << 2) | (g6 >> 4);
+    uint8_t b = (b5 << 3) | (b5 >> 2);
+
+    matrix.drawPixel(i % WIDTH, i / WIDTH, getGammaCorrectedColor(r, g, b));
+  }
+  matrix.show();
+
+  static unsigned long liveFramesDrawn = 0;
+  if (++liveFramesDrawn % 50 == 0) {
+    Serial.printf("Live frames drawn: %lu, Free heap: %d bytes\n", liveFramesDrawn, ESP.getFreeHeap());
+  }
 } 

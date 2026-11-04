@@ -7,6 +7,7 @@ import asyncio
 import struct
 
 from .utils import FULL_IMAGE_SIZE
+from . import live
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
     connected_clients.add(websocket)
+    is_frame = live.is_frame_client(websocket)
 
     try:
         from .utils import get_canvas
@@ -58,16 +60,29 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
         await websocket.send_bytes(final_data)
-        await asyncio.sleep(1.0)  # Delay for ESP32
+
+        if is_frame:
+            await asyncio.sleep(1.0)  # Delay for ESP32
+            # Join after the delay so the first message the frame sees is still the canvas
+            live.frame_clients.add(websocket)
+        else:
+            await live.send_status(websocket)
 
         while True:
             message = await websocket.receive()
 
+            if message["type"] == "websocket.disconnect":
+                break
+
             if message["type"] == "websocket.receive":
-                if "text" in message:
+                if message.get("text") is not None:
                     data = json.loads(message["text"])
 
-                    if data.get("type") == "pixel_update":
+                    if data.get("type") == "live_start":
+                        await live.start(websocket)
+                    elif data.get("type") == "live_stop":
+                        await live.stop(websocket)
+                    elif data.get("type") == "pixel_update":
                         x = data["x"]
                         y = data["y"]
                         r = data["r"]
@@ -78,11 +93,14 @@ async def websocket_endpoint(websocket: WebSocket):
                         update_pixel(x, y, r, g, b)
                         await broadcast_canvas_update(x, y, r, g, b, websocket)
 
-                elif "bytes" in message:
+                elif message.get("bytes") is not None:
                     binary_data = message["bytes"]
                     data_len = len(binary_data)
 
-                    if data_len == 5:
+                    if live.is_live_frame(binary_data):
+                        await live.relay_frame(binary_data, websocket)
+
+                    elif data_len == 5:
                         x, y, r, g, b = struct.unpack("BBBBB", binary_data)
                         from .utils import update_pixel, broadcast_canvas_update
 
@@ -100,13 +118,13 @@ async def websocket_endpoint(websocket: WebSocket):
                         await handle_binary_pixel_batch(binary_data, websocket)
 
     except WebSocketDisconnect:
-        connected_clients.remove(websocket)
-        logger.info(f"Client disconnected. Total clients: {len(connected_clients)}")
+        pass
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
-        if websocket in connected_clients:
-            connected_clients.remove(websocket)
+        connected_clients.discard(websocket)
+        await live.handle_disconnect(websocket)
+        logger.info(f"Client disconnected. Total clients: {len(connected_clients)}")
 
 
 @router.post("/reset")
