@@ -1,5 +1,36 @@
 const SIZE = 64;
 
+// Live frame format: "LV" + 64x64 RGB565 pixels, little-endian, row by row (see backend canvas/live.py)
+const LIVE_FRAME_SIZE = 2 + SIZE * SIZE * 2;
+
+/** Draw the source center-cropped to a square and scaled down to 64x64, optionally mirrored. */
+function drawSquare(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  mirror: boolean
+) {
+  const side = Math.min(sourceWidth, sourceHeight);
+  const sx = (sourceWidth - side) / 2;
+  const sy = (sourceHeight - side) / 2;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (mirror) {
+    ctx.translate(SIZE, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(source, sx, sy, side, side, 0, 0, SIZE, SIZE);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+export function createFrameCanvas(): CanvasRenderingContext2D | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE;
+  canvas.height = SIZE;
+  return canvas.getContext('2d', { willReadFrequently: true });
+}
+
 /**
  * Scale an image or video frame down to 64x64 and send it to everyone as a full image update.
  * The source is center-cropped to a square so it isn't stretched.
@@ -11,22 +42,10 @@ export function sendImageToFrame(
   sendBinary: (data: ArrayBuffer) => void,
   { mirror = false }: { mirror?: boolean } = {}
 ) {
-  const canvas = document.createElement('canvas');
-  canvas.width = SIZE;
-  canvas.height = SIZE;
-  const ctx = canvas.getContext('2d');
+  const ctx = createFrameCanvas();
   if (!ctx) return;
 
-  const side = Math.min(sourceWidth, sourceHeight);
-  const sx = (sourceWidth - side) / 2;
-  const sy = (sourceHeight - side) / 2;
-
-  if (mirror) {
-    ctx.translate(SIZE, 0);
-    ctx.scale(-1, 1);
-  }
-  ctx.drawImage(source, sx, sy, side, side, 0, 0, SIZE, SIZE);
-
+  drawSquare(ctx, source, sourceWidth, sourceHeight, mirror);
   const pixels = ctx.getImageData(0, 0, SIZE, SIZE).data; // RGBA
 
   // Format: [count][x][y][r][g][b] for every pixel, including black ones
@@ -58,4 +77,33 @@ export function sendImageToFrame(
   window.dispatchEvent(
     new CustomEvent('imageUpdate', { detail: { type: 'image_update', canvas: canvasPixels } })
   );
+}
+
+/**
+ * Turn the current video frame into a live frame for the physical frame.
+ * Draws into ctx (a 64x64 canvas), which callers can also show as a preview.
+ */
+export function encodeLiveFrame(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  { mirror = false }: { mirror?: boolean } = {}
+): ArrayBuffer {
+  drawSquare(ctx, source, sourceWidth, sourceHeight, mirror);
+  const pixels = ctx.getImageData(0, 0, SIZE, SIZE).data;
+
+  const frame = new ArrayBuffer(LIVE_FRAME_SIZE);
+  const view = new DataView(frame);
+  view.setUint8(0, 'L'.charCodeAt(0));
+  view.setUint8(1, 'V'.charCodeAt(0));
+
+  for (let i = 0; i < SIZE * SIZE; i++) {
+    const r = pixels[i * 4];
+    const g = pixels[i * 4 + 1];
+    const b = pixels[i * 4 + 2];
+    view.setUint16(2 + i * 2, ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3), true);
+  }
+
+  return frame;
 }

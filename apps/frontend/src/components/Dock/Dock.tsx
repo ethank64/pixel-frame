@@ -1,19 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import ColorPanel from '../ColorPanel/ColorPanel';
 import { BrushIcon, CameraIcon, EraserIcon, EyedropperIcon, ImageIcon, TrashIcon } from '../Icons';
 import { BRUSH_SIZES, type BrushSize, type DrawingTool } from '../../utils/brush';
 import { toCss, toHex, type RGB } from '../../utils/color';
+import { LIVE_FPS_OPTIONS, type useWebcam } from '../../hooks/useWebcam';
 import './Dock.css';
 
 type Panel = 'color' | 'size' | 'webcam' | 'clear';
 
-interface WebcamControls {
-  videoRef: RefObject<HTMLVideoElement | null>;
-  stream: MediaStream | null;
-  startWebcam: () => void;
-  stopWebcam: () => void;
-  captureWebcamFrame: () => void;
-}
+type WebcamControls = ReturnType<typeof useWebcam>;
 
 interface DockProps {
   activeTool: DrawingTool;
@@ -50,7 +45,7 @@ export default function Dock({
 }: DockProps) {
   const [openPanel, setOpenPanel] = useState<Panel | null>(null);
   const dockRef = useRef<HTMLDivElement>(null);
-  const { stream, stopWebcam } = webcam;
+  const { stream, stopWebcam, live } = webcam;
 
   const togglePanel = (panel: Panel) => {
     setOpenPanel((current) => (current === panel ? null : panel));
@@ -77,12 +72,12 @@ export default function Dock({
     };
   }, [openPanel]);
 
-  // Turn the camera off when its panel closes
+  // Turn the camera off when its panel closes, unless you're streaming
   useEffect(() => {
-    if (openPanel !== 'webcam' && stream) {
+    if (openPanel !== 'webcam' && stream && !live.you) {
       stopWebcam();
     }
-  }, [openPanel, stream, stopWebcam]);
+  }, [openPanel, stream, stopWebcam, live.you]);
 
   return (
     <div className="dock-anchor" ref={dockRef}>
@@ -112,28 +107,7 @@ export default function Dock({
             </div>
           )}
 
-          {openPanel === 'webcam' && (
-            <div className="webcam-panel">
-              <video ref={webcam.videoRef} className="webcam-video" muted playsInline />
-              {!webcam.stream && <p className="panel-note">Turn on your camera, then snap a picture to put it on the frame.</p>}
-              <div className="panel-actions">
-                {webcam.stream ? (
-                  <>
-                    <button type="button" className="secondary-button" onClick={webcam.stopWebcam}>
-                      Turn off
-                    </button>
-                    <button type="button" className="primary-button" onClick={webcam.captureWebcamFrame} disabled={!isConnected}>
-                      Snap to frame
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="primary-button" onClick={webcam.startWebcam}>
-                    Turn on camera
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+          {openPanel === 'webcam' && <WebcamPanel webcam={webcam} isConnected={isConnected} />}
 
           {openPanel === 'clear' && (
             <div className="clear-panel">
@@ -212,12 +186,13 @@ export default function Dock({
         <button
           type="button"
           className={`dock-button ${openPanel === 'webcam' ? 'open' : ''}`}
-          aria-label="Webcam"
+          aria-label={live.you ? 'Webcam, you are live' : 'Webcam'}
           title="Webcam"
           aria-expanded={openPanel === 'webcam'}
           onClick={() => togglePanel('webcam')}
         >
           <CameraIcon />
+          {live.you && <span className="live-badge" aria-hidden="true" />}
         </button>
         <button
           type="button"
@@ -232,6 +207,105 @@ export default function Dock({
       </div>
     </div>
   );
+}
+
+function WebcamPanel({ webcam, isConnected }: { webcam: WebcamControls; isConnected: boolean }) {
+  const { stream, live, fps } = webcam;
+  const secondsLeft = useSecondsLeft(live.active ? live.endsAt : 0);
+  const someoneElseLive = live.active && !live.you;
+
+  return (
+    <div className="webcam-panel">
+      <div className="webcam-previews">
+        <video ref={webcam.attachPreview} className="webcam-video" muted playsInline />
+        {live.you && (
+          <canvas
+            ref={webcam.previewCanvasRef}
+            className="live-preview"
+            width={64}
+            height={64}
+            role="img"
+            aria-label="What the frame is showing"
+          />
+        )}
+      </div>
+
+      {live.you ? (
+        <>
+          <p className="live-status">
+            <span className="live-dot" aria-hidden="true" />
+            You're live on the frame · {formatTime(secondsLeft)} left
+          </p>
+          <div className="panel-actions">
+            <button type="button" className="danger-button" onClick={webcam.stopLive}>
+              Stop streaming
+            </button>
+          </div>
+        </>
+      ) : !stream ? (
+        <>
+          <p className="panel-note">Turn on your camera to snap a picture or stream live to the frame.</p>
+          <div className="panel-actions">
+            <button type="button" className="primary-button" onClick={webcam.startWebcam}>
+              Turn on camera
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="fps-picker" role="group" aria-label="Frames per second">
+            {LIVE_FPS_OPTIONS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={option === fps ? 'active' : ''}
+                aria-pressed={option === fps}
+                onClick={() => webcam.setFps(option)}
+              >
+                {option} fps
+              </button>
+            ))}
+          </div>
+          {someoneElseLive ? (
+            <p className="panel-note">Someone else is streaming to the frame. It's free in {formatTime(secondsLeft)}.</p>
+          ) : (
+            <p className="panel-note">Streams last up to 3 minutes. Drawing keeps working and shows up on the frame when you stop.</p>
+          )}
+          <div className="panel-actions">
+            <button type="button" className="secondary-button" onClick={webcam.stopWebcam}>
+              Turn off
+            </button>
+            <button type="button" className="secondary-button" onClick={webcam.captureWebcamFrame} disabled={!isConnected}>
+              Snap
+            </button>
+            <button type="button" className="live-button" onClick={webcam.goLive} disabled={!isConnected || someoneElseLive}>
+              <span className="live-dot" aria-hidden="true" />
+              Go live
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Counts down to a Date.now() timestamp, once a second
+function useSecondsLeft(endsAt: number): number {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!endsAt) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [endsAt]);
+
+  return Math.max(0, Math.round((endsAt - now) / 1000));
+}
+
+function formatTime(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 function panelLabel(panel: Panel): string {

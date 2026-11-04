@@ -99,6 +99,9 @@
   border: 1px solid var(--border);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
   max-width: calc(100vw - 32px);
+  /* Short windows: scroll inside the panel instead of running off the top of the screen */
+  max-height: calc(100dvh - 110px);
+  overflow-y: auto;
   box-sizing: border-box;
 }
 
@@ -148,13 +151,112 @@
   max-width: 100%;
 }
 
+.webcam-previews {
+  position: relative;
+}
+
 .webcam-video {
+  display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
   border-radius: 10px;
   background: var(--surface);
   object-fit: cover;
   transform: scaleX(-1);
+}
+
+/* What the frame is getting, pinned to the corner of the camera view */
+.live-preview {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 88px;
+  height: 88px;
+  border-radius: 4px;
+  background: #000;
+  box-shadow: 0 0 0 3px #2b211a, 0 4px 12px rgba(0, 0, 0, 0.5);
+  image-rendering: pixelated;
+}
+
+.live-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--danger-text);
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: #ff5a4e;
+}
+
+.live-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid #ff5a4e;
+  background: #2a1416;
+  color: #ffb3ad;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.live-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.fps-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.fps-picker button {
+  height: 34px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fps-picker button.active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* Red dot on the camera button while you're streaming */
+.dock-button {
+  position: relative;
+}
+
+.live-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff5a4e;
+  box-shadow: 0 0 0 2px var(--raised);
 }
 
 .panel-note {
