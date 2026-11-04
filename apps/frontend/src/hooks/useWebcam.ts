@@ -11,8 +11,6 @@ export interface LiveState {
   active: boolean;
   // You hold the live turn
   you: boolean;
-  // When the current turn ends, as a Date.now() timestamp
-  endsAt: number;
 }
 
 // Skip a frame rather than queue it when this much is still waiting to go out
@@ -23,16 +21,12 @@ export function useWebcam() {
   const captureVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [live, setLive] = useState<LiveState>({ active: false, you: false, endsAt: 0 });
+  const [live, setLive] = useState<LiveState>({ active: false, you: false });
   const [fps, setFps] = useState<LiveFps>(10);
 
   const handleMessage = useCallback((message: WebSocketMessage) => {
     if (message.type === 'live_status') {
-      setLive({
-        active: message.active,
-        you: message.you,
-        endsAt: Date.now() + message.seconds_left * 1000,
-      });
+      setLive({ active: message.active, you: message.you });
     }
   }, []);
 
