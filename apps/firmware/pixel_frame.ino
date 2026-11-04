@@ -25,8 +25,13 @@ uint8_t oePin      = 14;
 
 #define NUM_ADDR_PINS 5
 
+// Bit depth sets shades per color channel and trades off against refresh rate.
+// Measured on this 64x64 panel: 4 bits = 138 Hz, 5 bits = 78 Hz, 6 bits = 42.5 Hz (visible flicker).
+// 5 keeps dark colors from being crushed to black by gamma correction while staying flicker-free.
+#define BIT_DEPTH 5
+
 Adafruit_Protomatter matrix(
-  WIDTH, 4, 1, rgbPins, NUM_ADDR_PINS, addrPins,
+  WIDTH, BIT_DEPTH, 1, rgbPins, NUM_ADDR_PINS, addrPins,
   clockPin, latchPin, oePin, true);
 
 // A simple gamma correction lookup table
