@@ -3,15 +3,18 @@ import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useWebSocket, type WebSocketMessage } from '../../hooks/useWebSocket';
 import './CanvasGrid.css';
 import { WS_URL } from '../../config';
-import Sidebar from '../Sidebar/Sidebar';
 import { ERASER_COLOR, getBrushPixels, type BrushSize, type DrawingTool } from '../../utils/brush';
 
 type Pixel = { r: number; g: number; b: number };
 type PixelUpdate = { x: number; y: number; r: number; g: number; b: number };
 
 interface CanvasGridProps {
-  selectedColor: { r: number; g: number; b: number };
-  onColorChange: (color: { r: number; g: number; b: number }) => void;
+  selectedColor: Pixel;
+  onColorChange: (color: Pixel) => void;
+  activeTool: DrawingTool;
+  onToolChange: (tool: DrawingTool) => void;
+  brushSize: BrushSize;
+  onStroke?: (color: Pixel) => void;
 }
 
 const PixelCell = memo(function PixelCell({
@@ -54,7 +57,17 @@ function encodePixelBatch(pixels: PixelUpdate[]): ArrayBuffer {
   return binaryData;
 }
 
-function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
+const isInBounds = (x: number, y: number) =>
+  x >= 0 && x < 64 && y >= 0 && y < 64;
+
+function CanvasGrid({
+  selectedColor,
+  onColorChange,
+  activeTool,
+  onToolChange,
+  brushSize,
+  onStroke,
+}: CanvasGridProps) {
   const canvasRef = useRef<Pixel[][]>(createBlackCanvas());
   const pixelQueue = useRef<PixelUpdate[]>([]);
   const bucketInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -64,13 +77,12 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
   const [canvasState, setCanvasState] = useState<Pixel[][]>(() =>
     createBlackCanvas()
   );
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [activeTool, setActiveTool] = useState<DrawingTool>('brush');
-  const [brushSize, setBrushSize] = useState<BrushSize>(1);
   const [hoverCell, setHoverCell] = useState<{ x: number; y: number } | null>(
     null
   );
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
+  // The pointer (mouse button, pen or finger) currently drawing; other fingers are ignored
+  const drawingPointerRef = useRef<number | null>(null);
 
   const scheduleRender = useCallback(() => {
     if (renderFrameRef.current !== null) return;
@@ -84,12 +96,7 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
   const applyPixels = useCallback(
     (pixels: { x: number; y: number; r: number; g: number; b: number }[]) => {
       for (const pixel of pixels) {
-        if (
-          pixel.x >= 0 &&
-          pixel.x < 64 &&
-          pixel.y >= 0 &&
-          pixel.y < 64
-        ) {
+        if (isInBounds(pixel.x, pixel.y)) {
           canvasRef.current[pixel.y][pixel.x] = {
             r: pixel.r,
             g: pixel.g,
@@ -169,21 +176,8 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
     };
   }, []);
 
+  // Images uploaded or snapped from this browser are applied locally (the server doesn't echo them back)
   useEffect(() => {
-    const handleGlobalMouseUp = () => {
-      if (isDrawing) {
-        setIsDrawing(false);
-        lastPosRef.current = null;
-      }
-    };
-
-    const handleGlobalMouseLeave = () => {
-      if (isDrawing) {
-        setIsDrawing(false);
-        lastPosRef.current = null;
-      }
-    };
-
     const handleImageUpdate = (event: CustomEvent) => {
       const message = event.detail;
 
@@ -194,34 +188,24 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
       }
     };
 
-    document.addEventListener('mouseup', handleGlobalMouseUp);
-    document.addEventListener('mouseleave', handleGlobalMouseLeave);
     window.addEventListener('imageUpdate', handleImageUpdate as EventListener);
-
     return () => {
-      document.removeEventListener('mouseup', handleGlobalMouseUp);
-      document.removeEventListener('mouseleave', handleGlobalMouseLeave);
       window.removeEventListener(
         'imageUpdate',
         handleImageUpdate as EventListener
       );
     };
-  }, [applyPixels, isDrawing, resetCanvas, scheduleRender]);
+  }, [applyPixels, resetCanvas, scheduleRender]);
 
   const updatePixelOptimistically = useCallback(
     (x: number, y: number, r: number, g: number, b: number) => {
-      if (x < 0 || x >= 64 || y < 0 || y >= 64) return;
+      if (!isInBounds(x, y)) return;
 
       const current = canvasRef.current[y][x];
       if (current.r === r && current.g === g && current.b === b) return;
 
       canvasRef.current[y][x] = { r, g, b };
-
-      setCanvasState((prev) => {
-        const newState = prev.map((row) => [...row]);
-        newState[y][x] = { r, g, b };
-        return newState;
-      });
+      scheduleRender();
 
       pixelQueue.current.push({ x, y, r, g, b });
 
@@ -229,7 +213,7 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
         startBucket();
       }
     },
-    [startBucket]
+    [scheduleRender, startBucket]
   );
 
   const stampBrush = useCallback(
@@ -241,15 +225,12 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
     [brushSize, updatePixelOptimistically]
   );
 
-  const getCoords = (event: React.MouseEvent) => {
+  const getCoords = (event: React.PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = Math.floor((event.clientX - rect.left) / (rect.width / 64));
     const y = Math.floor((event.clientY - rect.top) / (rect.height / 64));
     return { x, y };
   };
-
-  const isInBounds = (x: number, y: number) =>
-    x >= 0 && x < 64 && y >= 0 && y < 64;
 
   const drawLine = useCallback(
     (
@@ -266,10 +247,10 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
         return;
       }
 
-      let dx = Math.abs(x1 - x0);
-      let dy = Math.abs(y1 - y0);
-      let sx = x0 < x1 ? 1 : -1;
-      let sy = y0 < y1 ? 1 : -1;
+      const dx = Math.abs(x1 - x0);
+      const dy = Math.abs(y1 - y0);
+      const sx = x0 < x1 ? 1 : -1;
+      const sy = y0 < y1 ? 1 : -1;
       let err = dx - dy;
 
       let currentX = x0;
@@ -300,7 +281,17 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
     [stampBrush]
   );
 
-  const handleMouseDown = (event: React.MouseEvent) => {
+  const strokeColor = activeTool === 'eraser' ? ERASER_COLOR : selectedColor;
+
+  const endStroke = () => {
+    drawingPointerRef.current = null;
+    lastPosRef.current = null;
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (drawingPointerRef.current !== null) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+
     event.preventDefault();
     const { x, y } = getCoords(event);
     if (!isInBounds(x, y)) return;
@@ -308,23 +299,25 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
     if (activeTool === 'eyedropper') {
       const sampled = canvasRef.current[y][x];
       onColorChange({ ...sampled });
-      setActiveTool('brush');
+      onToolChange('brush');
       return;
     }
 
-    if (activeTool !== 'brush' && activeTool !== 'eraser') return;
-
-    const strokeColor = activeTool === 'eraser' ? ERASER_COLOR : selectedColor;
-    setIsDrawing(true);
+    // Keep receiving moves for this pointer even when it leaves the canvas
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drawingPointerRef.current = event.pointerId;
     lastPosRef.current = { x, y };
     stampBrush(x, y, strokeColor.r, strokeColor.g, strokeColor.b);
+    if (activeTool === 'brush') onStroke?.(selectedColor);
   };
 
-  const handleMouseMove = (event: React.MouseEvent) => {
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const { x, y } = getCoords(event);
-    setHoverCell(isInBounds(x, y) ? { x, y } : null);
+    if (event.pointerType !== 'touch') {
+      setHoverCell(isInBounds(x, y) ? { x, y } : null);
+    }
 
-    if (!isDrawing || activeTool === 'eyedropper') return;
+    if (event.pointerId !== drawingPointerRef.current) return;
 
     event.preventDefault();
 
@@ -336,22 +329,16 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
     }
     if (!isInBounds(x, y)) return;
 
-    const strokeColor = activeTool === 'eraser' ? ERASER_COLOR : selectedColor;
     drawLine(lastPosRef.current.x, lastPosRef.current.y, x, y, strokeColor);
     lastPosRef.current = { x, y };
   };
 
-  const handleMouseUp = (event: React.MouseEvent) => {
-    event.preventDefault();
-    setIsDrawing(false);
-    lastPosRef.current = null;
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerId === drawingPointerRef.current) endStroke();
   };
 
-  const handleMouseLeave = (event: React.MouseEvent) => {
-    event.preventDefault();
-    setHoverCell(null);
-    setIsDrawing(false);
-    lastPosRef.current = null;
+  const handlePointerLeave = () => {
+    if (drawingPointerRef.current === null) setHoverCell(null);
   };
 
   const showBrushPreview =
@@ -363,58 +350,46 @@ function CanvasGrid({ selectedColor, onColorChange }: CanvasGridProps) {
     ? getBrushPixels(hoverCell.x, hoverCell.y, brushSize)
     : [];
 
-  const previewColor =
-    activeTool === 'eraser' ? ERASER_COLOR : selectedColor;
-
   return (
-    <div className="canvas-container">
-      <div className="canvas-editor">
-        <Sidebar
-          activeTool={activeTool}
-          onToolChange={setActiveTool}
-          brushSize={brushSize}
-          onBrushSizeChange={setBrushSize}
-        />
-
-        <div className="canvas-grid-wrapper">
-        <div
-          className={`canvas-grid no-border tool-${activeTool}`}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseLeave}
-          style={{ userSelect: 'none' }}
-        >
-          {canvasState.map((row, y) =>
-            row.map((pixel, x) => (
-              <PixelCell
-                key={`${x}-${y}`}
-                r={pixel.r}
-                g={pixel.g}
-                b={pixel.b}
-              />
-            ))
-          )}
-        </div>
-
-        {showBrushPreview && (
-          <div className="brush-preview-overlay" aria-hidden="true">
-            {previewPixels.map(({ x, y }) => (
-              <div
-                key={`preview-${x}-${y}`}
-                className="brush-preview-pixel"
-                style={{
-                  gridColumn: x + 1,
-                  gridRow: y + 1,
-                  backgroundColor: `rgba(${previewColor.r}, ${previewColor.g}, ${previewColor.b}, 0.4)`,
-                  borderColor: `rgb(${previewColor.r}, ${previewColor.g}, ${previewColor.b})`,
-                }}
-              />
-            ))}
-          </div>
+    <div className="canvas-grid-wrapper">
+      <div
+        className={`canvas-grid tool-${activeTool}`}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerLeave={handlePointerLeave}
+        role="img"
+        aria-label="Shared 64 by 64 pixel canvas"
+      >
+        {canvasState.map((row, y) =>
+          row.map((pixel, x) => (
+            <PixelCell
+              key={`${x}-${y}`}
+              r={pixel.r}
+              g={pixel.g}
+              b={pixel.b}
+            />
+          ))
         )}
       </div>
-      </div>
+
+      {showBrushPreview && (
+        <div className="brush-preview-overlay" aria-hidden="true">
+          {previewPixels.map(({ x, y }) => (
+            <div
+              key={`preview-${x}-${y}`}
+              className="brush-preview-pixel"
+              style={{
+                gridColumn: x + 1,
+                gridRow: y + 1,
+                backgroundColor: `rgba(${strokeColor.r}, ${strokeColor.g}, ${strokeColor.b}, 0.4)`,
+                borderColor: `rgb(${strokeColor.r}, ${strokeColor.g}, ${strokeColor.b})`,
+              }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
