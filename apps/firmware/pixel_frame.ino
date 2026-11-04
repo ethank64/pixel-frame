@@ -43,12 +43,16 @@ const KnownNetwork knownNetworks[] = {
   { COLUMBUS_SSID, COLUMBUS_PASSWORD, nullptr, false },
   { HOME_SSID, HOME_PASSWORD, nullptr, false },
   { OU_SSID, OU_PASSWORD, OU_USERNAME, true },
+#ifdef APARTMENT_SSID
+  { APARTMENT_SSID, APARTMENT_PASSWORD, nullptr, false },
+#endif
 };
 
 const size_t NUM_KNOWN_NETWORKS = sizeof(knownNetworks) / sizeof(knownNetworks[0]);
 const unsigned long WIFI_CONNECT_TIMEOUT_MS = 20000;
 
 WebSocketsClient webSocket;
+static bool receivedCanvasInit = false;
 
 // Function Headers
 /* connectToWifi
@@ -282,6 +286,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_DISCONNECTED:
       Serial.println("[WebSocket] Disconnected");
       Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
+      receivedCanvasInit = false;
 
       if (length > 0) {
         Serial.printf("Disconnect reason: %s\n", payload);
@@ -291,6 +296,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_CONNECTED:
       Serial.println("[WebSocket] Connected to server");
       Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
+      receivedCanvasInit = false;
       writeText("");
       break;
     case WStype_TEXT: {
@@ -329,6 +335,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           }
         }
         matrix.show();
+        receivedCanvasInit = true;
         Serial.printf("Free heap after processing: %d bytes\n", ESP.getFreeHeap());
       } else if (strcmp(msg_type, "pixel_update") == 0) {
         int x = doc["x"];
@@ -403,16 +410,21 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         }
         
         matrix.show();
+        receivedCanvasInit = true;
         Serial.printf("Matrix updated with binary image, Free heap: %d bytes\n", ESP.getFreeHeap());
         Serial.println("Matrix updated with binary image");
         
       } else if (length >= 2) {
-        // Initial canvas state or image update: count + non-black pixel data
         uint16_t pixel_count = (payload[1] << 8) | payload[0]; // Little-endian
-        Serial.printf("Binary message with %d non-black pixels\n", pixel_count);
+        bool isInit = !receivedCanvasInit;
+
+        if (isInit) {
+          Serial.printf("Binary init with %d non-black pixels\n", pixel_count);
+          matrix.fillScreen(0);
+        } else {
+          Serial.printf("Binary pixel batch with %d pixels\n", pixel_count);
+        }
         Serial.printf("Processing message, Free heap: %d bytes\n", ESP.getFreeHeap());
-        
-        matrix.fillScreen(0);
         
         for (uint16_t i = 0; i < pixel_count; i++) {
           uint16_t offset = 2 + (i * 5);
@@ -434,8 +446,9 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         }
         
         matrix.show();
+        receivedCanvasInit = true;
         Serial.printf("Matrix updated, Free heap: %d bytes\n", ESP.getFreeHeap());
-        Serial.println("Matrix updated with binary message");
+        Serial.println(isInit ? "Matrix updated with binary init" : "Matrix updated with pixel batch");
       } else {
         Serial.printf("Unknown binary message format, length: %d\n", length);
       }
