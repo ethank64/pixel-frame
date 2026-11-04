@@ -2,30 +2,25 @@
 """
 Live webcam streaming to the frame.
 
-One person streams at a time, for up to LIVE_TURN_SECONDS. Their frames go only to the
-physical frame (never saved to the canvas or sent to browsers). When the turn ends, the
-frame gets the saved canvas back as a full image update.
+One person streams at a time, for as long as they like: the turn ends when they stop or
+disconnect. Their frames go only to the physical frame (never saved to the canvas or sent
+to browsers). When the turn ends, the frame gets the saved canvas back as a full image update.
 
 Live frame format: b"LV" followed by 64*64 RGB565 pixels, little-endian, row by row.
 """
 import asyncio
 import json
 import logging
-import os
-import time
 
 logger = logging.getLogger(__name__)
 
 LIVE_FRAME_MAGIC = b"LV"
 LIVE_FRAME_SIZE = 2 + 64 * 64 * 2
-LIVE_TURN_SECONDS = int(os.environ.get("LIVE_TURN_SECONDS", "180"))
 
 # The physical frame(s), told apart from browsers by the User-Agent the firmware sends
 frame_clients = set()
 
 _owner = None
-_ends_at = 0.0
-_turn_task: asyncio.Task | None = None
 # Frames still being sent to a frame client; new frames for it are dropped until it catches up
 _busy_frames = set()
 
@@ -44,13 +39,11 @@ def is_live_frame(binary_data: bytes) -> bool:
 
 
 def _status_for(websocket) -> str:
-    seconds_left = max(0, round(_ends_at - time.monotonic())) if is_live() else 0
     return json.dumps(
         {
             "type": "live_status",
             "active": is_live(),
             "you": websocket is _owner,
-            "seconds_left": seconds_left,
         }
     )
 
@@ -71,7 +64,7 @@ async def broadcast_status():
 
 async def start(websocket):
     """Give the requester the live turn if nobody else has it."""
-    global _owner, _ends_at, _turn_task
+    global _owner
 
     if _owner is not None and _owner is not websocket:
         await send_status(websocket)
@@ -79,8 +72,6 @@ async def start(websocket):
 
     if _owner is None:
         _owner = websocket
-        _ends_at = time.monotonic() + LIVE_TURN_SECONDS
-        _turn_task = asyncio.create_task(_end_after_turn())
         logger.info("Live stream started")
 
     await broadcast_status()
@@ -94,15 +85,12 @@ async def stop(websocket):
 
 async def end():
     """End the current live turn and put the saved canvas back on the frame."""
-    global _owner, _turn_task
+    global _owner
 
     if _owner is None:
         return
 
     _owner = None
-    if _turn_task is not None and _turn_task is not asyncio.current_task():
-        _turn_task.cancel()
-    _turn_task = None
     logger.info("Live stream ended")
 
     from .utils import encode_full_canvas
@@ -113,11 +101,6 @@ async def end():
         return_exceptions=True,
     )
     await broadcast_status()
-
-
-async def _end_after_turn():
-    await asyncio.sleep(LIVE_TURN_SECONDS)
-    await end()
 
 
 async def relay_frame(binary_data: bytes, sender):

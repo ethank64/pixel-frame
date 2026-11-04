@@ -33,7 +33,6 @@ export interface LiveStatusMessage {
   type: 'live_status';
   active: boolean;
   you: boolean;
-  seconds_left: number;
 }
 
 export type WebSocketMessage =

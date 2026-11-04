@@ -211,7 +211,6 @@ export default function Dock({
 
 function WebcamPanel({ webcam, isConnected }: { webcam: WebcamControls; isConnected: boolean }) {
   const { stream, live, fps } = webcam;
-  const secondsLeft = useSecondsLeft(live.active ? live.endsAt : 0);
   const someoneElseLive = live.active && !live.you;
 
   return (
@@ -234,7 +233,7 @@ function WebcamPanel({ webcam, isConnected }: { webcam: WebcamControls; isConnec
         <>
           <p className="live-status">
             <span className="live-dot" aria-hidden="true" />
-            You're live on the frame · {formatTime(secondsLeft)} left
+            You're live on the frame
           </p>
           <div className="panel-actions">
             <button type="button" className="danger-button" onClick={webcam.stopLive}>
@@ -267,9 +266,9 @@ function WebcamPanel({ webcam, isConnected }: { webcam: WebcamControls; isConnec
             ))}
           </div>
           {someoneElseLive ? (
-            <p className="panel-note">Someone else is streaming to the frame. It's free in {formatTime(secondsLeft)}.</p>
+            <p className="panel-note">Someone else is streaming to the frame. You can go live once they stop.</p>
           ) : (
-            <p className="panel-note">Streams last up to 3 minutes. Drawing keeps working and shows up on the frame when you stop.</p>
+            <p className="panel-note">Drawing keeps working while you stream and shows up on the frame when you stop.</p>
           )}
           <div className="panel-actions">
             <button type="button" className="secondary-button" onClick={webcam.stopWebcam}>
@@ -287,25 +286,6 @@ function WebcamPanel({ webcam, isConnected }: { webcam: WebcamControls; isConnec
       )}
     </div>
   );
-}
-
-// Counts down to a Date.now() timestamp, once a second
-function useSecondsLeft(endsAt: number): number {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!endsAt) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [endsAt]);
-
-  return Math.max(0, Math.round((endsAt - now) / 1000));
-}
-
-function formatTime(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 function panelLabel(panel: Panel): string {
